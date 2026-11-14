@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Run the full test suite (unit + browser e2e). Same as: ./run.sh test
+exec ./run.sh test "$@"
