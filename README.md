@@ -73,7 +73,8 @@ The included [Render Blueprint](render.yaml) deploys the actual Docker applicati
 2. In Render, connect your GitHub account and create a **Blueprint** from this repository.
 3. Confirm the service configuration and deploy it.
 4. Open the service URL and sign in as `admin`. Retrieve `APP_PASSWORD` from the service’s Environment settings.
-5. Optionally add `OPENAI_API_KEY` to enable natural-language AI, image extraction, and server audio, then redeploy.
+5. Put configuration under **Environment Variables → Add from .env**, or upload a Secret File named exactly `.env`; Docker also loads `/etc/secrets/.env` at runtime. Existing environment variables take precedence over that file. Save and redeploy after changing settings.
+6. Optionally add `OPENAI_API_KEY` to enable natural-language AI, image extraction, and server audio, then redeploy.
 
 The Blueprint enables automatic deployments **after GitHub CI checks pass**. Subsequent pushes rebuild the same application. The persistent disk retains SQLite data across deployments. See [Render’s Blueprint reference](https://render.com/docs/blueprint-spec) and [persistent disk guide](https://render.com/docs/disks).
 
