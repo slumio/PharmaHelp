@@ -1,0 +1,11 @@
+:root { color-scheme: dark; }
+::selection { background: #4a9dff; color: #152729; }
+.rig-hero { position: relative; overflow: hidden; isolation: isolate; }
+.rig-hero::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .15; z-index: -1; background-image: repeating-linear-gradient(0deg, transparent, transparent 3px, #163e66 3px, #163e66 4px), linear-gradient(90deg, transparent 49.8%, #9dcfff 50%, transparent 50.2%); background-size: auto, 100px 100%; }
+.rig-hero::after { content: "+"; position: absolute; right: 6%; top: -90px; font-size: 450px; font-weight: 400; color: #b7d9ff; opacity: .08; line-height: 1; pointer-events: none; z-index: -1; }
+.MuiChip-root { font-family: "Chivo Mono", monospace; border-radius: 0 !important; }
+.MuiDataGrid-root { --DataGrid-containerBackground: #263132; --DataGrid-rowBorderColor: #354444; }
+.MuiChartsAxis-label, .MuiChartsAxis-tickLabel { fill: #a2b4b2 !important; }
+main { animation: enter .3s ease-out; }
+@keyframes enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; scroll-behavior: auto !important; transition: none !important; } }

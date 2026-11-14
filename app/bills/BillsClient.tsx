@@ -1,5 +1,6 @@
 "use client";
 
+import { Alert, Box, Button, Skeleton } from "@mui/material";
 import { useEffect, useState } from "react";
 import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
@@ -18,12 +19,17 @@ const inr = (n: number | string) => "₹" + Number(n).toLocaleString("en-IN");
 
 export default function BillsClient() {
   const [orders, setOrders] = useState<Order[]>([]);
-  useEffect(() => { fetch("/api/orders").then((r) => r.json()).then(setOrders); }, []);
+  const [error, setError] = useState(""), [loading, setLoading] = useState(true);
+  async function load() { setError(""); setLoading(true); try { const response = await fetch("/api/orders"); if (!response.ok) throw new Error("Bills could not be loaded."); setOrders(await response.json()); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }
+  useEffect(() => { void load(); }, []);
 
   return (
     <>
-      <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>Customer bills</Typography>
-      <Paper variant="outlined">
+      <Typography variant="h4" sx={{ fontSize: { xs: 27, md: 31 } }}>Every sale, all in one place.</Typography>
+      <Typography color="text.secondary" variant="body2" sx={{ mt: .7, mb: 3 }}>Customer bills · A clear record of sales, payments and outstanding credit.</Typography>
+      {error && <Alert severity="error" action={<Button onClick={() => void load()}>Retry</Button>} sx={{ mb: 2 }}>{error}</Alert>}
+      {loading && <Skeleton height={80} />}
+      <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -49,6 +55,7 @@ export default function BillsClient() {
           </TableBody>
         </Table>
       </Paper>
+      {!loading && !orders.length && !error && <Box sx={{ p: 6, textAlign: "center", color: "text.secondary" }}>Your customer bills will appear here after your first sale.</Box>}
     </>
   );
 }

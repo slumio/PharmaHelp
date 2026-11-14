@@ -9,10 +9,10 @@ export const dynamic = "force-dynamic";
 const errorShape = (code: string, message: string) => ({ error: { code, message } });
 
 const Action = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("upsert"), args: z.record(z.unknown()) }),
-  z.object({ action: z.literal("update_count"), args: z.record(z.unknown()) }),
-  z.object({ action: z.literal("reduce"), args: z.record(z.unknown()) }),
-  z.object({ action: z.literal("delete"), args: z.record(z.unknown()) }),
+  z.object({ action: z.literal("upsert"), args: z.record(z.string(), z.unknown()) }),
+  z.object({ action: z.literal("update_count"), args: z.record(z.string(), z.unknown()) }),
+  z.object({ action: z.literal("reduce"), args: z.record(z.string(), z.unknown()) }),
+  z.object({ action: z.literal("delete"), args: z.record(z.string(), z.unknown()) }),
 ]);
 
 export async function GET() {

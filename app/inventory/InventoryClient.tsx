@@ -26,7 +26,8 @@ export default function InventoryClient() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  const load = () => fetch("/api/stock").then((r) => r.json()).then(setRows);
+  const [loading, setLoading] = useState(true);
+  const load = async () => { setLoading(true); try { const response = await fetch("/api/stock"); if (!response.ok) throw new Error("Inventory could not be loaded. Please try again."); setRows(await response.json()); } catch (e) { setErr((e as Error).message); } finally { setLoading(false); } };
   useEffect(() => { void load(); }, []);
 
   const post = async (action: string, args: Record<string, unknown>) => {
@@ -39,7 +40,7 @@ export default function InventoryClient() {
   };
 
   const openDialog = (kind: typeof dialog, row?: Row) => {
-    setForm(row ? { medicineId: String(row.medicine_id), name: row.name } : {});
+    setForm(row ? { medicineId: String(row.medicine_id), name: row.name, batchNo: row.batch_no, packSize: row.pack_size, expiryDate: row.expiry_date ?? "", mrp: row.mrp, rackCode: row.rack_code ?? "" } : {});
     setDialog(kind);
   };
 
@@ -66,12 +67,13 @@ export default function InventoryClient() {
 
   return (
     <>
-      <Stack direction="row" sx={{ mb: 2 }}>
-        <Typography variant="h5" sx={{ fontWeight: 700 }}>Inventory</Typography>
+      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center",  mb: 3, gap: 2 }}>
+        <Stack><Typography variant="h4" sx={{ fontSize: { xs: 27, md: 31 } }}>A place for every medicine.</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: .7 }}>Inventory · Keep your shelves stocked and your counts clear.</Typography></Stack>
         <Button variant="contained" onClick={() => openDialog("upsert")}>New stock</Button>
       </Stack>
+      {err && <Alert severity="error" onClose={() => setErr(null)} sx={{ mb: 2 }}>{err}</Alert>}
       <DataGrid
-        rows={rows} columns={cols} getRowId={(r) => r.medicine_id}
+        loading={loading} sx={{ bgcolor: "background.paper", borderColor: "divider", borderRadius: 0, "& .MuiDataGrid-columnHeaders": { bgcolor: "#263132" }, "& .MuiDataGrid-cell": { borderColor: "#354444", fontSize: 12 }, "& .MuiDataGrid-columnHeaderTitle": { fontSize: 11, fontWeight: 600 } }} rows={rows} columns={cols} getRowId={(r) => r.medicine_id}
         autoHeight initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
         pageSizeOptions={[25, 50]} disableRowSelectionOnClick density="compact"
       />
@@ -85,17 +87,17 @@ export default function InventoryClient() {
         </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            {dialog === "upsert" && !form.name && <TextField label="Medicine name" value={form.name ?? ""} onChange={(e) => setForm({ ...form, name: e.target.value })} />}
+            {dialog === "upsert" && !form.medicineId && <TextField label="Medicine name" value={form.name ?? ""} onChange={(e) => setForm({ ...form, name: e.target.value })} />}
             {dialog === "upsert" && (
               <>
-                <TextField label="Batch no" defaultValue="NA" value={form.batchNo ?? ""} onChange={(e) => setForm({ ...form, batchNo: e.target.value })} />
+                <TextField label="Batch no" value={form.batchNo ?? ""} onChange={(e) => setForm({ ...form, batchNo: e.target.value })} />
                 <TextField label="Expiry (YYYY-MM-DD)" value={form.expiryDate ?? ""} onChange={(e) => setForm({ ...form, expiryDate: e.target.value })} />
                 <TextField label="MRP" type="number" value={form.mrp ?? ""} onChange={(e) => setForm({ ...form, mrp: e.target.value })} />
                 <TextField label="Rack code" value={form.rackCode ?? ""} onChange={(e) => setForm({ ...form, rackCode: e.target.value })} />
               </>
             )}
             {dialog !== "delete" && <TextField label={dialog === "count" ? "Counted quantity" : "Quantity"} type="number" value={form.qty ?? ""} onChange={(e) => setForm({ ...form, qty: e.target.value })} />}
-            {dialog === "delete" && <TextField select label="Reason" defaultValue="expired" value={form.reason ?? "expired"} onChange={(e) => setForm({ ...form, reason: e.target.value })}>
+            {dialog === "delete" && <TextField select label="Reason" value={form.reason ?? "expired"} onChange={(e) => setForm({ ...form, reason: e.target.value })}>
               {["expired", "damaged", "returned to supplier", "removed from shelf"].map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
             </TextField>}
           </Stack>
@@ -106,7 +108,7 @@ export default function InventoryClient() {
             variant="contained"
             onClick={() => {
               const n = Number(form.qty);
-              if (dialog === "upsert") void post("upsert", { name: form.name, qty: n, mrp: Number(form.mrp) || 0, batchNo: form.batchNo || "NA", expiryDate: form.expiryDate || undefined, rackCode: form.rackCode || undefined });
+              if (dialog === "upsert") void post("upsert", { name: form.name, qty: n, mrp: Number(form.mrp) || 0, batchNo: form.batchNo || "NA", packSize: form.packSize || "strip", expiryDate: form.expiryDate || undefined, rackCode: form.rackCode || undefined });
               if (dialog === "reduce") void post("reduce", { medicineId: Number(form.medicineId), qty: n, reason: form.reason || "manual issue" });
               if (dialog === "count") void post("update_count", { medicineId: Number(form.medicineId), countedQty: n });
               if (dialog === "delete") void post("delete", { medicineId: Number(form.medicineId), reason: form.reason });

@@ -1,8 +1,8 @@
+import Papa from "papaparse";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { sql } from "drizzle-orm";
-import { db } from "@/db";
-import { STORE_ID } from "@/lib/queries";
+import { confirmBill, ToolError } from "@/lib/repository";
+import { randomUUID } from "node:crypto";
 import { openai } from "@ai-sdk/openai";
 import { generateObject } from "ai";
 
@@ -10,18 +10,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BillItem = z.object({
-  name: z.string(),
+  name: z.string().trim().min(1).max(200),
   packSize: z.string().default("strip"),
   batchNo: z.string().default("NA"),
   expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal("")).default(""),
-  qty: z.number().int().min(0),
+  qty: z.number().int().min(1),
   mrp: z.number().min(0),
   purchasePrice: z.number().min(0).default(0),
 });
 
 const BillExtraction = z.object({
   supplierName: z.string().default("Unknown supplier"),
-  items: z.array(BillItem),
+  items: z.array(BillItem).max(1000),
 });
 
 export type BillExtraction = z.infer<typeof BillExtraction>;
@@ -29,6 +29,7 @@ export type BillExtraction = z.infer<typeof BillExtraction>;
 export async function POST(req: NextRequest) {
   const form = await req.formData();
   const file = form.get("file");
+  if (file instanceof File && file.size > 8 * 1024 * 1024) return NextResponse.json({ error: { code: "too_large", message: "Maximum upload size is 8 MB" } }, { status: 413 });
   const text = form.get("text"); // pasted CSV text alternative
   try {
     if (file instanceof File && file.type.startsWith("image/")) {
@@ -53,13 +54,15 @@ export async function POST(req: NextRequest) {
     // CSV text path (uploaded file or pasted): name,pack,batch,expiry,qty,mrp
     const csv = typeof text === "string" ? text : file instanceof File ? await file.text() : "";
     const items: z.infer<typeof BillItem>[] = [];
-    for (const line of csv.split(/\r?\n/).filter(Boolean).slice(file ? 1 : 0)) {
-      const [name, pack, batch, expiry, qty, mrp, purchase] = line.split(",").map((s) => s.trim());
-      if (!name) continue;
-      items.push({
-        name, packSize: pack || "strip", batchNo: batch || "NA", expiryDate: /^\d{4}-\d{2}-\d{2}$/.test(expiry ?? "") ? expiry : "",
-        qty: Number(qty) || 0, mrp: Number(mrp) || 0, purchasePrice: Number(purchase) || (Number(mrp) || 0) * 0.75,
-      });
+    const parsedCsv = Papa.parse<string[]>(csv, { skipEmptyLines: "greedy" });
+    if (parsedCsv.errors.length) return NextResponse.json({ error: { code: "validation", message: "Invalid CSV" } }, { status: 400 });
+    const rows = parsedCsv.data;
+    const hasHeader = /^(name|medicine)$/i.test(rows[0]?.[0]?.trim() ?? "");
+    for (const row of rows.slice(hasHeader ? 1 : 0)) {
+      const [name, pack, batch, expiry, qty, mrp, purchase] = row.map(value => value.trim());
+      const item = BillItem.safeParse({ name, packSize: pack || "strip", batchNo: batch || "NA", expiryDate: expiry || "", qty: Number(qty), mrp: Number(mrp), purchasePrice: purchase ? Number(purchase) : Number(mrp) * 0.75 });
+      if (!item.success || items.length >= 1000) return NextResponse.json({ error: { code: "validation", message: "Invalid CSV row or more than 1000 items" } }, { status: 400 });
+      items.push(item.data);
     }
     if (!items.length) return NextResponse.json({ error: { code: "empty", message: "No rows found. Expected: name,pack,batch,expiry,qty,mrp[,purchase]" } }, { status: 400 });
     return Response.json({ supplierName: "CSV import", items, source: "csv" });
@@ -74,7 +77,7 @@ const Confirm = z.object({
   supplierName: z.string().default("Unknown supplier"),
   sourceImageUrl: z.string().optional(),
   idempotencyKey: z.string().optional(),
-  items: z.array(BillItem.extend({ rawRow: z.record(z.unknown()).optional() })).min(1),
+  items: z.array(BillItem.extend({ rawRow: z.record(z.string(), z.unknown()).optional() } )).min(1).max(1000),
 });
 
 export async function PUT(req: NextRequest) {
@@ -83,30 +86,11 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: { code: "validation", message: "items required" } }, { status: 400 });
   }
   const a = parsed.data;
-  const subtotal = a.items.reduce((s, i) => s + i.qty * (i.purchasePrice || i.mrp * 0.75), 0);
-  const gst = subtotal * 0.12;
-  const bill = await db.execute<{ id: number }>(sql`
-    INSERT INTO bills (store_id, kind, status, supplier_name, subtotal, gst_total, total, source_image_url, idempotency_key)
-    VALUES (${STORE_ID}, 'purchase', 'confirmed', ${a.supplierName}, ${subtotal.toFixed(2)}, ${gst.toFixed(2)}, ${(subtotal + gst).toFixed(2)}, ${a.sourceImageUrl ?? null}, ${a.idempotencyKey ?? 'bill-' + Date.now()})
-    ${a.idempotencyKey ? sql`ON CONFLICT (store_id, idempotency_key) DO NOTHING RETURNING id` : sql`RETURNING id`}
-    `);
-  const billId = bill[0]?.id;  if (!billId) return NextResponse.json({ error: { code: "duplicate", message: "Bill already processed" } }, { status: 409 });
-
-  let inserted = 0;
-  for (const it of a.items) {
-    const rows = await db.execute<{ id: number }>(sql`
-      INSERT INTO medicines (store_id, name, pack_size, batch_no, expiry_date, mrp, purchase_price)
-      VALUES (${STORE_ID}, ${it.name}, ${it.packSize}, ${it.batchNo}, ${it.expiryDate || null}, ${it.mrp}, ${it.purchasePrice || it.mrp * 0.75})
-      ON CONFLICT (store_id, name, pack_size, batch_no) DO UPDATE SET mrp = EXCLUDED.mrp
-      RETURNING id`);
-    await db.execute(sql`
-      INSERT INTO stock_movements (store_id, medicine_id, kind, qty, reason, ref_type, ref_id)
-      VALUES (${STORE_ID}, ${rows[0].id}, 'purchase', ${it.qty}, ${a.supplierName}, 'bill', ${billId})`);
-    await db.execute(sql`
-      INSERT INTO bill_items (bill_id, medicine_id, name_snapshot, pack_size, batch_no, expiry_date, qty, mrp, line_total, raw_row)
-      VALUES (${billId}, ${rows[0].id}, ${it.name}, ${it.packSize}, ${it.batchNo}, ${it.expiryDate || null}, ${it.qty}, ${it.mrp},
-              ${((it.qty) * (it.purchasePrice || it.mrp * 0.75)).toFixed(2)}, ${JSON.stringify(it.rawRow ?? it)}::jsonb)`);
-    inserted += it.qty;
+  try {
+    return Response.json(await confirmBill({ supplierName: a.supplierName, idempotencyKey: a.idempotencyKey ?? randomUUID(), items: a.items.map(item => ({ ...item, expiryDate: item.expiryDate || undefined })) }));
+  } catch (error) {
+    if (error instanceof ToolError) return NextResponse.json({ error: { code: error.code, message: error.message } }, { status: 409 });
+    console.error("Bill confirmation failed", error);
+    return NextResponse.json({ error: { code: "internal", message: "Bill could not be saved" } }, { status: 500 });
   }
-  return Response.json({ billId, items: a.items.length, unitsAdded: inserted, total: +(subtotal + gst).toFixed(2) });
 }

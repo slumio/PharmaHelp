@@ -1,5 +1,6 @@
 "use client";
 
+import { Alert, Skeleton } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
@@ -18,9 +19,8 @@ export default function ShelvesClient() {
   const [q, setQ] = useState("");
   const [rack, setRack] = useState<string>("all");
 
-  useEffect(() => {
-    fetch("/api/stock").then((r) => r.json()).then(setRows);
-  }, []);
+  const [error, setError] = useState(""), [loading, setLoading] = useState(true);
+  useEffect(() => { fetch("/api/stock").then(async response => { if (!response.ok) throw new Error("Shelf data could not be loaded."); setRows(await response.json()); }).catch(e => setError(e.message)).finally(() => setLoading(false)); }, []);
 
   const racks = useMemo(() => [...new Set(rows.map((r) => r.rack_code ?? "?"))].sort(), [rows]);
   const filtered = useMemo(
@@ -30,7 +30,10 @@ export default function ShelvesClient() {
 
   return (
     <>
-      <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>Shelf Map</Typography>
+      <Typography variant="h4" sx={{ fontSize: { xs: 27, md: 31 } }}>Know exactly where to look.</Typography>
+      <Typography color="text.secondary" variant="body2" sx={{ mt: .7, mb: 3 }}>Shelf map · Find the right medicine on the right shelf, faster.</Typography>
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {loading && <Skeleton height={100} />}
       <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
         <TextField
           size="small" placeholder="Find a medicine…" value={q} onChange={(e) => setQ(e.target.value)}
@@ -50,14 +53,14 @@ export default function ShelvesClient() {
         return (
           <Paper key={rc} variant="outlined" sx={{ p: 2, mb: 2 }}>
             <Typography variant="h6" gutterBottom>Rack {rc}</Typography>
-            <Box sx={{ display: "grid", gridTemplateColumns: `repeat(${maxCol}, minmax(110px, 1fr))`, gap: 1 }}>
-              {Array.from({ length: maxRow * maxCol }, (_, i) => {
-                const rn = Math.floor(i / maxCol), cn = i % maxCol;
+            <Box sx={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(maxCol, 12)}, minmax(80px, 1fr))`, gap: 1 }}>
+              {Array.from({ length: Math.min(maxRow, 20) * Math.min(maxCol, 12) }, (_, i) => {
+                const rn = Math.floor(i / Math.min(maxCol, 12)), cn = i % Math.min(maxCol, 12);
                 const meds = inRack.filter((r) => r.row_no === rn && r.col_no === cn);
                 return (
                   <Tooltip key={i} title={meds.map((m) => m.name).join(", ") || "Empty"}>
                     <Box sx={{
-                      minHeight: 56, borderRadius: 1, p: 0.5, fontSize: 11,
+                      minHeight: 80, borderRadius: 0, p: 1, fontSize: 11,
                       bgcolor: meds.length ? "primary.light" : "grey.100",
                       outline: meds.length && q && meds.some((m) => m.name.toLowerCase().includes(q.toLowerCase())) ? "2px solid" : undefined,
                       outlineColor: "warning.main", overflow: "hidden",
@@ -71,7 +74,7 @@ export default function ShelvesClient() {
           </Paper>
         );
       })}
-      {filtered.length === 0 && <Typography color="text.secondary">No matches.</Typography>}
+      {!loading && !error && filtered.length === 0 && <Typography color="text.secondary">No medicines found. Add stock and a rack location to start building your shelf map.</Typography>}
     </>
   );
 }

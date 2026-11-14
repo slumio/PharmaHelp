@@ -1,94 +1,89 @@
-/**
- * Backend tests: every agent tool runs its exact SQL against the real seeded
- * database and the results are asserted. Run: npm test  (needs seeded Postgres)
- */
-import { describe, it, expect, afterAll } from "vitest";
-import { tools, ToolError, createOrderTx } from "@/lib/agent-tools";
-import { dashboardMetrics, currentStock } from "@/lib/queries";
-import { client } from "@/db";
+import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import { tools, createOrderTx, ToolError } from "@/lib/agent-tools";
+import { dashboardMetrics, currentStock, lowStock } from "@/lib/queries";
+import { database, closeDatabase, STORE_ID } from "@/db/mongo";
+import { confirmBill, medicines } from "@/lib/repository";
 
-const afterAllClose = async () => { await client.end(); };
-
-describe("query layer: exact SQL results", () => {
-  it("dashboardMetrics computes today's revenue from orders", async () => {
-    const m = await dashboardMetrics();
-    expect(m.todayRevenue).toBeGreaterThanOrEqual(0);
-    expect(m.trend).toHaveLength(30);
-    expect(m.topMovers.length).toBeGreaterThan(0);
-    expect(m.slowMovers.length).toBeGreaterThan(0);
-    expect(Number.isFinite(m.expiry90.value)).toBe(true);
-  });
-
-  it("currentStock returns stock equal to SUM(ledger)", async () => {
-    const rows = await currentStock();
-    const res = (await client.unsafe(
-      `SELECT m.id, COALESCE(SUM(sm.qty),0)::int stock FROM medicines m
-       LEFT JOIN stock_movements sm ON sm.medicine_id = m.id WHERE m.store_id = 1 GROUP BY m.id ORDER BY m.id LIMIT 1`,
-    )) as unknown as { id: number; stock: number }[];
-    const first = rows.find((r) => r.medicine_id === (res[0] as { id: number }).id);
-    expect(first?.stock).toBe((res[0] as { stock: number }).stock);
-  });
+const unique = () => `Test-${crypto.randomUUID()}`;
+async function add(qty = 5) {
+  const name = unique();
+  const result = await tools.upsert_stock.run({ name, mrp: 10.01, purchasePrice: 8, qty } as never) as { medicineId: number };
+  return { ...result, name };
+}
+beforeAll(async () => {
+  if (!process.env.MONGODB_DB?.endsWith("_test")) throw new Error("Tests require a dedicated MONGODB_DB ending in _test");
+  await database();
 });
+afterAll(closeDatabase);
 
-describe("agent tools run real SQL", () => {
-  it("get_expiring_stock returns rows with value_at_risk", async () => {
-    const rows = (await tools.get_expiring_stock.run({ days: 90 } as never)) as { value_at_risk: string }[];
-    expect(Array.isArray(rows)).toBe(true);
-    for (const r of rows) expect(Number(r.value_at_risk)).toBeGreaterThanOrEqual(0);
+describe("MongoDB inventory and transaction guarantees", () => {
+  it("adds stock and exposes compatible frontend fields", async () => {
+    const med = await add();
+    const rows = await currentStock(med.name);
+    expect(rows[0]).toMatchObject({ medicine_id: med.medicineId, stock: 5, mrp: "10.01" });
   });
-
-  it("search_medicines finds Dolo by name", async () => {
-    const rows = (await tools.search_medicines.run({ query: "Dolo" } as never)) as { name: string }[];
-    expect(rows.some((r) => r.name.includes("Dolo"))).toBe(true);
+  it("escapes regex metacharacters in medicine search", async () => {
+    expect(await currentStock("[unclosed")).toEqual([]);
   });
-
-  it("find_rack_location returns rack placement", async () => {
-    const rows = (await tools.find_rack_location.run({ query: "Dolo" } as never)) as { rack_code: string | null }[];
-    expect(rows[0]).toBeDefined();
+  it("adjusts, reduces and zeros stock with ledger parity", async () => {
+    const med = await add(10);
+    await tools.reduce_stock.run({ medicineId: med.medicineId, qty: 2 } as never);
+    await tools.update_stock_count.run({ medicineId: med.medicineId, countedQty: 4 } as never);
+    const db = await database();
+    const movements = await db.collection("movements").find({ medicineId: med.medicineId, storeId: STORE_ID }).toArray();
+    expect(movements.reduce((sum, m) => sum + m.qty, 0)).toBe(4);
+    await tools.delete_stock.run({ medicineId: med.medicineId } as never);
+    expect(await currentStock(med.name)).toEqual([]);
+    expect((await lowStock()).some(m => m.name === med.name && m.qty === 0)).toBe(true);
   });
-
-  it("upsert_stock inserts, then reduce_stock and update_stock_count move the ledger", async () => {
-    const up = (await tools.upsert_stock.run({
-      name: "TestMed 10mg", packSize: "strip of 10", batchNo: "T1", mrp: 50, purchasePrice: 40, qty: 25, rackCode: "Z9",
-    } as never)) as { medicineId: number };
-    const stock1 = await tools.search_medicines.run({ query: "TestMed" } as never) as { stock: number }[];
-    expect(stock1[0].stock).toBe(25);
-
-    await tools.reduce_stock.run({ medicineId: up.medicineId, qty: 5 } as never);
-    const stock2 = (await tools.search_medicines.run({ query: "TestMed" } as never)) as { stock: number }[];
-    expect(stock2[0].stock).toBe(20);
-
-    await tools.update_stock_count.run({ medicineId: up.medicineId, countedQty: 12 } as never);
-    const stock3 = (await tools.search_medicines.run({ query: "TestMed" } as never)) as { stock: number }[];
-    expect(stock3[0].stock).toBe(12);
-
-    await tools.delete_stock.run({ medicineId: up.medicineId } as never);
-    const stock4 = (await tools.search_medicines.run({ query: "TestMed" } as never)) as { stock: number }[];
-    expect(stock4[0]?.stock ?? 0).toBe(0);
+  it("rejects overselling and negative quantities", async () => {
+    const med = await add(2);
+    await expect(createOrderTx("Customer", undefined, undefined, [{ medicineId: med.medicineId, qty: 3 }])).rejects.toThrow(ToolError);
+    await expect(createOrderTx("Customer", undefined, undefined, [{ medicineId: med.medicineId, qty: -1 }])).rejects.toThrow();
+    expect((await currentStock(med.name))[0].stock).toBe(2);
   });
-
-  it("reduce_stock refuses to go negative", async () => {
-    const up = (await tools.upsert_stock.run({ name: "NegMed", mrp: 10, qty: 3 } as never)) as { medicineId: number };
-    await expect(tools.reduce_stock.run({ medicineId: up.medicineId, qty: 10 } as never)).rejects.toThrow(ToolError);
-    await tools.delete_stock.run({ medicineId: up.medicineId } as never);
+  it("serializes concurrent sales", async () => {
+    const med = await add(5);
+    const results = await Promise.allSettled([1, 2].map(() => createOrderTx("Concurrent", undefined, undefined, [{ medicineId: med.medicineId, qty: 4 }])));
+    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter(r => r.status === "rejected")).toHaveLength(1);
+    expect((await currentStock(med.name))[0].stock).toBe(1);
   });
-
-  it("createOrderTx generates invoice, GST and deducts stock", async () => {
-    const med = (await tools.search_medicines.run({ query: "Crocin" } as never)) as { medicine_id: number; stock: number }[];
-    const before = med[0].stock;
-    const order = await createOrderTx("Test Customer", "9999999999", undefined, [{ medicineId: med[0].medicine_id, qty: 2 }]);
-    expect(order.invoice.invoiceNo).toBeGreaterThan(1000);
-    expect(order.invoice.gst).toBeCloseTo(order.invoice.subtotal * 0.12, 2);
-    expect(order.invoice.items[0].qty).toBe(2);
-    const after = (await tools.search_medicines.run({ query: "Crocin" } as never)) as { stock: number }[];
-    expect(after[0].stock).toBe(before - 2);
+  it("consolidates duplicate sale lines before checking stock", async () => {
+    const med = await add(3);
+    await expect(createOrderTx("Duplicate", undefined, undefined, [{ medicineId: med.medicineId, qty: 2 }, { medicineId: med.medicineId, qty: 2 }])).rejects.toThrow(ToolError);
+    expect((await currentStock(med.name))[0].stock).toBe(3);
   });
-
-  it("createOrderTx rejects overselling", async () => {
-    const med = (await tools.search_medicines.run({ query: "ORS" } as never)) as { medicine_id: number; stock: number }[];
-    await expect(createOrderTx("Test", undefined, undefined, [{ medicineId: med[0].medicine_id, qty: med[0].stock + 100 }]))
-      .rejects.toThrow(ToolError);
+  it("uses integer cents for totals and rejects overpayment", async () => {
+    const med = await add();
+    await expect(createOrderTx("Customer", undefined, 1000, [{ medicineId: med.medicineId, qty: 1 }])).rejects.toThrow(ToolError);
+    const result = await createOrderTx("Customer", undefined, 5, [{ medicineId: med.medicineId, qty: 3 }]);
+    expect(result.invoice).toMatchObject({ subtotal: 30.03, gst: 3.6, total: 33.63, paid: 5, creditDue: 28.63 });
   });
-
-  afterAll(afterAllClose);
+  it("confirms bills once per idempotency key", async () => {
+    const name = unique(), key = unique();
+    const input = { supplierName: "Supplier", idempotencyKey: key, items: [{ name, packSize: "strip", batchNo: "NA", qty: 4, mrp: 20, purchasePrice: 12 }] };
+    await confirmBill(input);
+    await expect(confirmBill(input)).rejects.toThrow(ToolError);
+    expect((await currentStock(name))[0].stock).toBe(4);
+  });
+  it("rolls back all bill writes when a later line fails", async () => {
+    const name = unique(), key = unique();
+    const input = { supplierName: "Supplier", idempotencyKey: key, items: [{ name, packSize: "strip", batchNo: "NA", qty: 4, mrp: 20, purchasePrice: 12 }, { name: unique(), packSize: "strip", batchNo: "NA", qty: BigInt(1), mrp: 20, purchasePrice: 12 }] };
+    await expect(confirmBill(input as never)).rejects.toThrow();
+    expect(await currentStock(name)).toEqual([]);
+    expect(await (await database()).collection("bills").countDocuments({ idempotencyKey: key })).toBe(0);
+  });
+  it("isolates medicine mutations by store", async () => {
+    const db = await database();
+    const result = await medicines(db).insertOne({ _id: 900000001, storeId: STORE_ID + 1000, name: unique(), packSize: "strip", batchNo: "NA", stock: 3, mrpCents: 100, purchaseCents: 50, minStock: 10, expiryDate: null, rackCode: null, rowNo: null, colNo: null });
+    try { await expect(tools.reduce_stock.run({ medicineId: result.insertedId, qty: 1 } as never)).rejects.toThrow(ToolError); }
+    finally { await medicines(db).deleteOne({ _id: result.insertedId }); }
+  });
+  it("returns a complete 30-day metrics series", async () => {
+    const metrics = await dashboardMetrics();
+    expect(metrics.trend).toHaveLength(30);
+    expect(Number.isFinite(metrics.todayRevenue)).toBe(true);
+    expect(metrics.creditOutstanding).toBeGreaterThanOrEqual(0);
+  });
 });

@@ -1,85 +1,33 @@
 "use client";
-
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import Grid from "@mui/material/Grid";
-import Card from "@mui/material/Card";
-import CardContent from "@mui/material/CardContent";
-import Typography from "@mui/material/Typography";
-import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
-import TableCell from "@mui/material/TableCell";
-import TableBody from "@mui/material/TableBody";
-import Chip from "@mui/material/Chip";
+import { Alert, Box, Button, Card, Chip, Skeleton, Stack, Typography } from "@mui/material";
+import { ArrowForwardRounded, AddRounded, AutoAwesomeRounded, CurrencyRupeeRounded, ReceiptLongOutlined, Inventory2Outlined, AccountBalanceWalletOutlined, FileUploadOutlined, ScheduleRounded, MicRounded } from "@mui/icons-material";
 import { LineChart } from "@mui/x-charts/LineChart";
 import type { Metrics } from "@/lib/queries";
-
-const inr = (n: number) => "₹" + n.toLocaleString("en-IN");
-
-function Stat({ title, value, tone }: { title: string; value: string; tone?: "warn" }) {
-  return (
-    <Card>
-      <CardContent>
-        <Typography color="text.secondary" variant="body2">{title}</Typography>
-        <Typography variant="h5" sx={{ fontWeight: 700, color: tone === "warn" ? "warning.dark" : "text.primary" }}>
-          {value}
-        </Typography>
-      </CardContent>
-    </Card>
-  );
-}
-
+const inr = (value: number) => "₹" + value.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 export default function DashboardClient() {
-  const [m, setM] = useState<Metrics | null>(null);
-  useEffect(() => {
-    fetch("/api/metrics").then((r) => r.json()).then((j: Metrics) => setM(j));
-  }, []);
-  if (!m) return <Typography>Loading…</Typography>;
-
-  return (
-    <Grid container spacing={2}>
-      <Grid size={{ xs: 12, sm: 6, md: 3 }}><Stat title="Today's revenue" value={inr(m.todayRevenue)} /></Grid>
-      <Grid size={{ xs: 12, sm: 6, md: 3 }}><Stat title="Orders today" value={String(m.todayOrders)} /></Grid>
-      <Grid size={{ xs: 12, sm: 6, md: 3 }}><Stat title="Expiring in 90 days" value={`${inr(m.expiry90.value)} (${m.expiry90.count})`} tone="warn" /></Grid>
-      <Grid size={{ xs: 12, sm: 6, md: 3 }}><Stat title="Low stock items" value={String(m.lowStockCount)} tone="warn" /></Grid>
-      <Grid size={{ xs: 12, sm: 6, md: 3 }}><Stat title="Credit (udhaar) outstanding" value={inr(m.creditOutstanding)} /></Grid>
-
-      <Grid size={{ xs: 12, md: 7 }}>
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>30-day revenue</Typography>
-            <LineChart
-              height={260}
-              xAxis={[{ scaleType: "point", data: m.trend.map((t: { day: string }) => t.day.slice(5)), tickLabelStyle: { fontSize: 10 } }]}
-              series={[{ data: m.trend.map((t: { revenue: number }) => t.revenue), area: true, showMark: false }]}
-            />
-          </CardContent>
-        </Card>
-      </Grid>
-
-      <Grid size={{ xs: 12, md: 5 }}>
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>Top movers (30 days)</Typography>
-            <Table size="small">
-              <TableHead><TableRow><TableCell>Medicine</TableCell><TableCell align="right">Qty</TableCell><TableCell align="right">Revenue</TableCell></TableRow></TableHead>
-              <TableBody>
-                {m.topMovers.map((t: { name: string; qty: number; revenue: number }) => (
-                  <TableRow key={t.name}>
-                    <TableCell>{t.name}</TableCell>
-                    <TableCell align="right">{t.qty}</TableCell>
-                    <TableCell align="right">{inr(t.revenue)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <Chip label="Slow movers: " size="small" sx={{ mt: 2, display: "none" }} />
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-              Slow movers: {m.slowMovers.map((s: { name: string }) => s.name).join(", ")}
-            </Typography>
-          </CardContent>
-        </Card>
-      </Grid>
-    </Grid>
-  );
+  const [metrics, setMetrics] = useState<Metrics | null>(null), [error, setError] = useState("");
+  async function load() { setError(""); try { const result = await fetch("/api/metrics"); if (!result.ok) throw new Error("Your store data could not be loaded. Check your connection and try again."); setMetrics(await result.json()); } catch (e) { setError((e as Error).message); } }
+  useEffect(() => { void load(); }, []);
+  const stats = metrics ? [
+    { title: "Today's revenue", value: inr(metrics.todayRevenue), caption: "Sales recorded today · UTC", Icon: CurrencyRupeeRounded, color: "#4a9dff", bg: "#263e42" },
+    { title: "Orders today", value: String(metrics.todayOrders).padStart(2, "0"), caption: "Customer bills created", Icon: ReceiptLongOutlined, color: "#83aaf2", bg: "#293b4e" },
+    { title: "Low stock items", value: String(metrics.lowStockCount).padStart(2, "0"), caption: "Time to check your inventory", Icon: Inventory2Outlined, color: "#e5b56a", bg: "#3a352c" },
+    { title: "Outstanding credit", value: inr(metrics.creditOutstanding), caption: "Customer credit · udhaar", Icon: AccountBalanceWalletOutlined, color: "#b3a0d4", bg: "#343140" },
+  ] : [];
+  return <Stack spacing={3}>
+    <Stack className="rig-hero" direction={{ xs: "column", sm: "row" }} sx={{ p: { xs: 3, md: 4 }, minHeight: { xs: 255, md: 270 }, bgcolor: "#3285e3", color: "#f0ede6",  justifyContent: "space-between", gap: 2, alignItems: { sm: "center" },  }}><Box><Typography sx={{ color: "#d1e2ef", fontSize: 10, mb: 2, letterSpacing: 1.5, fontFamily: '"Chivo Mono", monospace' }}>PHARMAHELP / STORE OPERATING SYSTEM</Typography><Typography variant="h4" sx={{ fontSize: { xs: 39, md: 64 }, lineHeight: .98, fontWeight: 500, letterSpacing: "-2.5px", maxWidth: 580 }}>Your pharmacy. In full control<span style={{ color: "#65aaff" }}>.</span></Typography><Typography variant="body2" sx={{ color: "#d2e5f4", mt: 2, maxWidth: 380 }}>Keep an eye on what matters. Take care of what’s next.</Typography></Box><Button component={Link} href="/inventory" variant="contained" startIcon={<AddRounded />} sx={{ alignSelf: { xs: "flex-start", sm: "auto" }, whiteSpace: "nowrap" }}>Manage stock</Button></Stack>
+    {error && <Alert severity="error" action={<Button onClick={() => void load()}>Retry</Button>}>{error}</Alert>}
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", xl: "repeat(4, 1fr)" }, gap: 2 }}>{metrics ? stats.map(({ title, value, caption, Icon, color, bg }) => <Card key={title} sx={{ p: { xs: 2, md: 2.5 } }}><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center",  mb: 2 }}><Typography sx={{ fontSize: 12, color: "text.secondary" }}>{title}</Typography><Box sx={{ display: "flex", p: .9, borderRadius: 0, bgcolor: bg, color }}><Icon sx={{ fontSize: 19 }} /></Box></Stack><Typography sx={{ fontSize: { xs: 25, md: 30 }, fontWeight: 750, letterSpacing: -1 }}>{value}</Typography><Typography sx={{ color: "text.secondary", fontSize: 10, mt: 1 }}>{caption}</Typography></Card>) : Array.from({ length: 4 }, (_, i) => <Card key={i} sx={{ p: 3 }}><Skeleton width="60%" /><Skeleton height={56} /><Skeleton width="80%" /></Card>)}</Box>
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1.85fr) minmax(270px, 1fr)" }, gap: 2.5 }}>
+      <Card sx={{ p: { xs: 2, sm: 3 }, minWidth: 0 }}><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center",  }}><Box><Typography variant="h6">30-day revenue</Typography><Typography variant="body2" sx={{ fontSize: 11 }} color="text.secondary">A little perspective on your store’s sales.</Typography></Box><Chip label="Last 30 days" size="small" variant="outlined" sx={{ fontSize: 10 }} /></Stack>{metrics ? <LineChart height={265} colors={["#4a9dff"]} margin={{ left: 10, right: 10, top: 30, bottom: 0 }} xAxis={[{ scaleType: "point", data: metrics.trend.map(t => t.day.slice(5)), tickLabelInterval: (_, i) => i % 6 === 0, tickLabelStyle: { fontSize: 10 } }]} yAxis={[{ width: 45, tickLabelStyle: { fontSize: 10 } }]} series={[{ data: metrics.trend.map(t => t.revenue), area: true, showMark: false, curve: "monotoneX", label: "Revenue", valueFormatter: v => inr(v ?? 0) }]} hideLegend sx={{ "& .MuiAreaElement-root": { fillOpacity: .09 }, "& .MuiChartsAxis-line, & .MuiChartsAxis-tick": { stroke: "#394747" } }} /> : <Skeleton variant="rounded" height={265} sx={{ mt: 3 }} />}</Card>
+      <Card sx={{ bgcolor: "#215fa8", borderColor: "#4796ea", p: 3, position: "relative", overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "space-between" }}><Box sx={{ position: "absolute", width: 150, height: 150, border: "30px solid #5cafff", borderRadius: "50%", right: -55, top: -45, opacity: .8 }} /><Box sx={{ position: "relative" }}><Chip icon={<AutoAwesomeRounded sx={{ fontSize: "14px !important" }} />} label="YOUR STORE COPILOT" size="small" sx={{ fontSize: 9, letterSpacing: .8, bgcolor: "#246bb9", color: "#e8e4d9", mb: 2.5 }} /><Typography sx={{ fontSize: 27, lineHeight: 1.25, fontWeight: 700, letterSpacing: -.7, color: "#f0ede6" }}>Less searching.<br />More knowing.</Typography><Typography variant="body2" sx={{ mt: 1.5, maxWidth: 230, fontSize: 12, color: "#e0e9ee" }}>“Where is Dolo kept?”<br />“What’s running low?”<br />Just ask. Your store has answers.</Typography></Box><Button component={Link} href="/ask" variant="contained" startIcon={<MicRounded />} endIcon={<ArrowForwardRounded />} sx={{ mt: 3, alignSelf: "flex-start", bgcolor: "#152729", fontSize: 12 }}>Ask your store</Button></Card>
+    </Box>
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1.85fr) minmax(270px, 1fr)" }, gap: 2.5 }}>
+      <Card sx={{ p: 3 }}><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center",  mb: 2 }}><Box><Typography variant="h6">Your shelf favourites</Typography><Typography sx={{ fontSize: 11, color: "text.secondary" }}>Most sold medicines over the last 30 days</Typography></Box><Chip label="TOP MOVERS" size="small" sx={{ bgcolor: "#293b3e", color: "#91b7d6", fontSize: 9 }} /></Stack>{metrics?.topMovers.length ? metrics.topMovers.map((item, i) => <Stack key={item.name} direction="row" spacing={1.5} sx={{ alignItems: "center",  py: 1.5, borderTop: "1px solid", borderColor: "divider" }}><Box sx={{ width: 30, height: 32, display: "grid", placeItems: "center", bgcolor: "#293738", borderRadius: 0, color: "#9bb6b4", fontSize: 11 }}>0{i + 1}</Box><Box sx={{ flex: 1, minWidth: 0 }}><Typography sx={{ fontSize: 12, fontWeight: 600 }} noWrap>{item.name}</Typography><Typography sx={{ fontSize: 10, color: "text.secondary" }}>{item.qty} units sold</Typography></Box><Typography sx={{ fontWeight: 650, fontSize: 13 }}>{inr(item.revenue)}</Typography></Stack>) : <Box sx={{ py: 4, textAlign: "center", color: "text.secondary" }}><ReceiptLongOutlined sx={{ color: "#6c8580", mb: 1 }} /><Typography variant="body2">Your first sale starts the story.</Typography><Typography sx={{ fontSize: 11 }}>Top medicines will appear here as you record orders.</Typography></Box>}</Card>
+      <Stack spacing={2.5}><Card sx={{ p: 2.5 }}><Stack direction="row" spacing={1.5} sx={{ alignItems: "flex-start",  }}><Box sx={{ p: 1, bgcolor: "#3e362b", color: "#e7b970", borderRadius: 0, display: "flex" }}><ScheduleRounded sx={{ fontSize: 20 }} /></Box><Box><Typography sx={{ fontSize: 13, fontWeight: 700 }}>A heads-up on expiry</Typography><Typography sx={{ fontSize: 11, color: "text.secondary", mt: .6 }}>{metrics ? `${metrics.expiry90.count} medicines expire in the next 90 days. ${inr(metrics.expiry90.value)} at purchase cost.` : "Checking upcoming expiry dates…"}</Typography><Button component={Link} href="/ask?question=What%20expires%20in%20the%20next%2090%20days%3F" size="small" endIcon={<ArrowForwardRounded />} sx={{ px: 0, mt: .6, fontSize: 11 }}>Review expiring stock</Button></Box></Stack></Card><Card sx={{ p: 2.5 }}><Stack direction="row" spacing={1.5} sx={{ alignItems: "center",  }}><Box sx={{ display: "flex", p: 1, bgcolor: "#2d3b4d", color: "#92b4dd", borderRadius: 0 }}><FileUploadOutlined sx={{ fontSize: 20 }} /></Box><Box sx={{ flex: 1 }}><Typography sx={{ fontSize: 13, fontWeight: 700 }}>New supplier delivery?</Typography><Typography sx={{ fontSize: 11, color: "text.secondary", mt: .3 }}>Upload a bill. Review. Stock up.</Typography></Box><IconLink /></Stack></Card></Stack>
+    </Box>
+  </Stack>;
 }
+function IconLink() { return <Button component={Link} href="/import" aria-label="Import supplier bill" sx={{ minWidth: 32, px: 0 }}><ArrowForwardRounded sx={{ fontSize: 18 }} /></Button>; }
