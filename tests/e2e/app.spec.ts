@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
-  const result = await page.request.post("/api/auth", { data: { username: process.env.APP_USERNAME ?? "test", password: process.env.APP_PASSWORD ?? "test-password" } });
+  const result = await page.request.post("/api/auth", { data: { username: process.env.APP_USERNAME ?? "test", password: process.env.APP_PASSWORD ?? "test-password-long-enough" } });
   expect(result.ok()).toBe(true);
 });
 
@@ -36,7 +36,6 @@ test("inventory grid lists medicines and opens new-stock dialog", async ({ page 
 });
 
 test("CSV bill import parses, confirms and adds stock", async ({ page }) => {
-  test.skip(process.env.DEMO_MODE === "true", "Preview intentionally prevents writes");
   await page.goto("/import");
   const csv = "name,pack,batch,expiry,qty,mrp\nE2E Test Drug 500,strip of 10,E2E1,2027-06-30,40,99\n";
   await page.locator('input[type="file"][accept=".csv,text/csv"]').setInputFiles({
@@ -80,20 +79,11 @@ test("mobile navigation opens and dashboard does not overflow", async ({ page })
   await expect(page.getByRole("heading", { name: "A place for every medicine." })).toBeVisible();
 });
 
-test("demo is labeled and refuses writes", async ({ page }) => {
-  test.skip(process.env.DEMO_MODE !== "true", "Only applies to the sample-data preview");
-  await page.goto("/");
-  await expect(page.getByText(/DEMO \/ Fictional sample data/)).toBeVisible();
-  const result = await page.request.post("/api/stock", { data: { action: "delete", args: { medicineId: 1 } } });
-  expect(result.status()).toBe(409);
-  expect((await result.json()).error.code).toBe("demo_readonly");
-});
-
 test("sign-in form opens the workspace and sign-out clears the session", async ({ page, context }) => {
   await context.clearCookies();
   await page.goto("/login");
   await page.getByLabel(/Username/).fill(process.env.APP_USERNAME ?? "test");
-  await page.getByLabel(/Password/).fill(process.env.APP_PASSWORD ?? "test-password");
+  await page.getByLabel(/Password/).fill(process.env.APP_PASSWORD ?? "test-password-long-enough");
   await page.getByRole("button", { name: "Open my workspace" }).click();
   await expect(page).toHaveURL(/\/$/);
   await page.getByRole("button", { name: "Sign out" }).click();
@@ -102,13 +92,12 @@ test("sign-in form opens the workspace and sign-out clears the session", async (
 
 test("AI prepares stock changes and confirms them only after review", async ({ page }) => {
   await page.goto("/ask");
-  const name = process.env.DEMO_MODE === "true" ? "Dolo 650mg" : `AI Browser ${Date.now()}`;
+  const name = `AI Browser ${Date.now()}`;
   await page.getByPlaceholder("Ask anything about your store…").fill(`Add 3 ${name} at MRP 25`);
   await page.getByRole("button", { name: "Ask", exact: true }).click();
   await expect(page.getByText(/Stock addition prepared/)).toBeVisible();
   const confirm = page.getByRole("button", { name: "Confirm change" });
-  if (process.env.DEMO_MODE === "true") await expect(confirm).toBeDisabled();
-  else {
+  {
     const before = await page.request.get("/api/stock");
     expect((await before.json()).some((row: { name: string }) => row.name === name)).toBe(false);
     await confirm.click();

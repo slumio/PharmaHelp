@@ -1,8 +1,9 @@
 "use client";
+import { useSpokenAnswers } from "@/components/useSpokenAnswers";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Avatar, Box, Button, Chip, CircularProgress, IconButton, MenuItem, Paper, Stack, Switch, TextField, Tooltip, Typography } from "@mui/material";
 import { AutoAwesomeRounded, MicRounded, SendRounded, StopRounded, VolumeUpRounded, Inventory2Outlined, ScheduleRounded, PlaceOutlined, TrendingUpRounded, DeleteOutlineRounded } from "@mui/icons-material";
-type Action = { id: string; tool: string; args: Record<string, unknown>; demo: boolean; review: { label: string; value: string }[] };
+type Action = { id: string; tool: string; args: Record<string, unknown>; review: { label: string; value: string }[] };
 type Turn = { actions?: Action[]; role: "user" | "bot"; text: string; tools?: { tool: string }[] };
 type Recognition = { lang: string; interimResults: boolean; onresult: (e: { results: { 0: { 0: { transcript: string } } } }) => void; onerror: (e: { error: string }) => void; onend: () => void; start: () => void; stop: () => void; abort: () => void };
 const suggestions = [
@@ -15,6 +16,7 @@ export default function AskClient() {
   const [turns, setTurns] = useState<Turn[]>([]), [input, setInput] = useState("");
   const [busy, setBusy] = useState(false), [listening, setListening] = useState(false), [error, setError] = useState("");
   const [language, setLanguage] = useState("en-IN"), [speak, setSpeak] = useState(false);
+  const speech = useSpokenAnswers({ language, onError: setError });
   const [actionStates, setActionStates] = useState<Record<string, "saving" | "saved" | "cancelled">>({});
   const [voiceAvailable, setVoiceAvailable] = useState(false);
   const recognition = useRef<Recognition | null>(null), recorder = useRef<MediaRecorder | null>(null), stream = useRef<MediaStream | null>(null), timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -24,9 +26,9 @@ export default function AskClient() {
     mounted.current = true;
     const win = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
     setVoiceAvailable(Boolean(win.SpeechRecognition || win.webkitSpeechRecognition || (typeof navigator.mediaDevices?.getUserMedia === "function" && typeof window.MediaRecorder !== "undefined")));
-    const question = new URLSearchParams(window.location.search).get("question");
+    const question = new URLSearchParams(window.location.hash.split("?")[1] ?? window.location.search).get("question");
     if (question) setInput(question.slice(0, 500));
-    return () => { mounted.current = false; recognition.current?.abort(); if (recorder.current?.state === "recording") recorder.current.stop(); stopTracks(); window.speechSynthesis?.cancel(); };
+    return () => { mounted.current = false; recognition.current?.abort(); if (recorder.current?.state === "recording") recorder.current.stop(); stopTracks(); speech.stop(); };
   }, []);
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [turns, busy]);
   async function ask(question: string) {
@@ -39,7 +41,7 @@ export default function AskClient() {
       if (!response.ok) throw new Error(data.error?.message ?? "Your question could not be answered. Please try again.");
       if (!mounted.current) return;
       setTurns(t => [...t, { role: "bot", text: data.answer, tools: data.toolCalls, actions: data.actions }]);
-      if (speak) read(data.answer);
+      if (speak) void speech.read(data.answer);
     } catch (e) { if (mounted.current) { setError((e as Error).message); setInput(question); } }
     finally { inFlight.current = false; if (mounted.current) setBusy(false); }
   }
@@ -54,13 +56,9 @@ export default function AskClient() {
       setTurns(turns => [...turns, { role: "bot", text: result.result?.invoice ? `Sale saved. Invoice #${result.result.invoice.invoiceNo}, total ₹${result.result.invoice.total}.` : "Confirmed and saved to your store. Your stock and audit trail are updated." }]);
     } catch (e) { setError((e as Error).message); setActionStates(states => { const next = { ...states }; delete next[action.id]; return next; }); }
   }
-  function read(text: string) {
-    if (!window.speechSynthesis) { setError("Spoken answers are unavailable in this browser."); return; }
-    window.speechSynthesis.cancel(); const utterance = new SpeechSynthesisUtterance(text.slice(0, 1500)); utterance.lang = language; window.speechSynthesis.speak(utterance);
-  }
   async function microphone() {
     if (listening) { recognition.current?.stop(); if (recorder.current?.state === "recording") recorder.current.stop(); setListening(false); return; }
-    setError(""); window.speechSynthesis?.cancel();
+    setError(""); speech.stop();
     const win = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
     const Constructor = win.SpeechRecognition ?? win.webkitSpeechRecognition;
     if (Constructor) {
@@ -92,7 +90,7 @@ export default function AskClient() {
     } catch (e) { stopTracks(); setListening(false); setError((e as Error).message || "Please allow microphone access and try again."); }
   }
   return <Stack spacing={2.5} sx={{ maxWidth: 960, mx: "auto" }}>
-    <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center",  }}><Box><Typography variant="h4" sx={{ fontSize: { xs: 27, md: 31 } }}>A question away from clarity.</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: .7 }}>Your inventory, sales and shelves. Just ask your store.</Typography></Box>{turns.length > 0 && <Tooltip title="Clear conversation"><IconButton aria-label="Clear conversation" onClick={() => { setTurns([]); window.speechSynthesis?.cancel(); }}><DeleteOutlineRounded /></IconButton></Tooltip>}</Stack>
+    <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center",  }}><Box><Typography variant="h4" sx={{ fontSize: { xs: 27, md: 31 } }}>A question away from clarity.</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: .7 }}>Your inventory, sales and shelves. Just ask your store.</Typography></Box>{turns.length > 0 && <Tooltip title="Clear conversation"><IconButton aria-label="Clear conversation" onClick={() => { setTurns([]); speech.stop(); }}><DeleteOutlineRounded /></IconButton></Tooltip>}</Stack>
     <Paper variant="outlined" sx={{ overflow: "hidden", bgcolor: "#202a2a" }}>
       <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center",  px: { xs: 2, md: 3 }, py: 2, borderBottom: "1px solid", borderColor: "divider", bgcolor: "#1e2a2b" }}><Stack direction="row" spacing={1.4} sx={{ alignItems: "center",  }}><Avatar sx={{ bgcolor: "#304451", color: "#9ec2e9", borderRadius: 0, width: 38, height: 38 }}><AutoAwesomeRounded sx={{ fontSize: 20 }} /></Avatar><Box><Typography sx={{ fontWeight: 650, fontSize: 13 }}>Ask your store</Typography><Typography sx={{ fontSize: 10, color: "text.secondary" }}>Answers grounded in your store records</Typography></Box></Stack><Chip label="Voice + text" size="small" sx={{ bgcolor: "#303e50", color: "#b1c7e5", fontSize: 10 }} /></Stack>
       <Box aria-live="polite" role="log" aria-label="Conversation" sx={{ minHeight: { xs: 350, md: 420 }, maxHeight: 570, overflowY: "auto", px: { xs: 2, md: 4 }, py: 3 }}>
@@ -100,12 +98,13 @@ export default function AskClient() {
         {turns.map((turn, i) => <Stack key={i} direction="row" spacing={1.2} sx={{ justifyContent: turn.role === "user" ? "flex-end" : "flex-start",  my: 2 }}>{turn.role === "bot" && <Avatar sx={{ width: 29, height: 29, bgcolor: "#2d4550", color: "#90c5ff" }}><AutoAwesomeRounded sx={{ fontSize: 15 }} /></Avatar>}<Box sx={{ maxWidth: "88%", bgcolor: turn.role === "user" ? "#304b5e" : "#263334", borderRadius: "12px", borderTopRightRadius: turn.role === "user" ? 3 : 12, p: 2 }}><Typography sx={{ fontSize: 13, lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{turn.text}</Typography>{turn.tools?.length ? <Typography sx={{ color: "text.secondary", fontSize: 9, mt: 1 }}>via {turn.tools.map(t => t.tool).join(", ")}</Typography> : null}{turn.actions?.map(action => <Box key={action.id} sx={{ mt: 2, p: 2, border: "1px solid #4b718f", bgcolor: "#233946" }}>
           <Typography sx={{ fontFamily: '"Chivo Mono", monospace', fontSize: 10, color: "#8ec0fa", mb: 1 }}>REVIEW BEFORE SAVING / {({ upsert_stock: "ADD STOCK", reduce_stock: "REDUCE STOCK", update_stock_count: "CORRECT COUNT", delete_stock: "REMOVE STOCK", create_order: "CREATE SALE" } as Record<string, string>)[action.tool]}</Typography>
           <Stack spacing={.7}>{action.review.map((detail, index) => <Stack key={index} direction="row" spacing={2} sx={{ justifyContent: "space-between", gap: 2 }}><Typography sx={{ fontSize: 11, color: "text.secondary" }}>{detail.label}</Typography><Typography sx={{ fontSize: 11, textAlign: "right", overflowWrap: "anywhere" }}>{detail.value}</Typography></Stack>)}</Stack>
-          <Typography sx={{ fontSize: 10, color: "text.secondary", my: 1.5 }}>{action.demo ? "Sample-data preview. Connect MongoDB to enable real changes." : "Nothing has changed yet. This proposal expires in 15 minutes."}</Typography>
-          <Stack direction="row" spacing={1}><Button variant="contained" size="small" disabled={action.demo || Boolean(actionStates[action.id])} onClick={() => void approve(action)}>{actionStates[action.id] === "saved" ? "Saved" : actionStates[action.id] === "saving" ? "Saving…" : actionStates[action.id] === "cancelled" ? "Cancelled" : "Confirm change"}</Button><Button size="small" disabled={Boolean(actionStates[action.id])} onClick={() => setActionStates(states => ({ ...states, [action.id]: "cancelled" }))}>Cancel</Button></Stack>
-        </Box>)}{turn.role === "bot" && <IconButton aria-label="Read answer aloud" onClick={() => read(turn.text)} size="small" sx={{ mt: .7 }}><VolumeUpRounded sx={{ fontSize: 16 }} /></IconButton>}</Box></Stack>)}
+          <Typography sx={{ fontSize: 10, color: "text.secondary", my: 1.5 }}>{"Nothing has changed yet. This proposal expires in 15 minutes."}</Typography>
+          <Stack direction="row" spacing={1}><Button variant="contained" size="small" disabled={Boolean(actionStates[action.id])} onClick={() => void approve(action)}>{actionStates[action.id] === "saved" ? "Saved" : actionStates[action.id] === "saving" ? "Saving…" : actionStates[action.id] === "cancelled" ? "Cancelled" : "Confirm change"}</Button><Button size="small" disabled={Boolean(actionStates[action.id])} onClick={() => setActionStates(states => ({ ...states, [action.id]: "cancelled" }))}>Cancel</Button></Stack>
+        </Box>)}{turn.role === "bot" && <IconButton aria-label="Read answer aloud" onClick={() => { setError(""); void speech.read(turn.text); }} size="small" sx={{ mt: .7 }}><VolumeUpRounded sx={{ fontSize: 16 }} /></IconButton>}</Box></Stack>)}
         {busy && <Stack direction="row" spacing={1.5} sx={{ alignItems: "center",  p: 2 }}><CircularProgress size={16} /><Typography sx={{ fontSize: 12, color: "text.secondary" }}>Checking your store records…</Typography></Stack>}<div ref={end} />
       </Box>
       <Box sx={{ px: { xs: 2, md: 3 }, pb: 2.5 }}>
+        {(speech.speaking || speech.loading) && <Alert severity="info" action={<Button onClick={speech.stop}>Stop audio</Button>} sx={{ mb: 1.5 }}>{speech.loading ? "Preparing spoken answer…" : "Reading answer aloud…"}</Alert>}
         {error && <Alert severity="warning" sx={{ mb: 1.5 }} onClose={() => setError("")}>{error}</Alert>}
         {listening && <Alert severity="info" icon={<MicRounded />} sx={{ mb: 1.5 }}>Listening… tap stop when you’re done. Review your words before sending.</Alert>}
         <Stack component="form" onSubmit={e => { e.preventDefault(); void ask(input); }} direction="row" spacing={1} sx={{ alignItems: "center",  border: "1px solid #415454", borderRadius: 0, p: .8, bgcolor: "#202a2a", boxShadow: "0 3px 12px #152b1705" }}>
@@ -113,9 +112,10 @@ export default function AskClient() {
           {voiceAvailable && <Tooltip title={listening ? "Stop listening" : "Speak your question"}><span><IconButton aria-label={listening ? "Stop listening" : "Speak your question"} disabled={busy} onClick={() => void microphone()} sx={{ color: listening ? "#f48f7a" : "#a1c3d8", bgcolor: listening ? "#4b3030" : "#2b3a3d" }}>{listening ? <StopRounded /> : <MicRounded />}</IconButton></span></Tooltip>}
           <Button type="submit" variant="contained" aria-label="Ask" disabled={busy || listening || !input.trim()} sx={{ minWidth: 44, px: 1.5 }}><SendRounded sx={{ fontSize: 19 }} /></Button>
         </Stack>
-        <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between",  mt: 1.5, gap: 1, flexWrap: "wrap" }}><Stack direction="row" spacing={1.5} sx={{ alignItems: "center",  }}><TextField select size="small" value={language} onChange={e => setLanguage(e.target.value)} disabled={listening || busy} slotProps={{ htmlInput: { "aria-label": "Voice language" } }} sx={{ "& .MuiSelect-select": { py: .5, fontSize: 11 }, "& fieldset": { border: 0 } }}><MenuItem value="en-IN">English (India)</MenuItem><MenuItem value="hi-IN">हिन्दी</MenuItem></TextField><Stack component="label" direction="row" sx={{ alignItems: "center",  fontSize: 10, color: "text.secondary" }}><Switch size="small" checked={speak} onChange={e => { setSpeak(e.target.checked); if (!e.target.checked) window.speechSynthesis?.cancel(); }} slotProps={{ input: { "aria-label": "Speak answers" } }} />Speak answers</Stack></Stack><Typography sx={{ fontSize: 9, color: "text.secondary" }}>Review voice text before sending · Enter to ask</Typography></Stack>
+        <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between",  mt: 1.5, gap: 1, flexWrap: "wrap" }}><Stack direction="row" spacing={1.5} sx={{ alignItems: "center",  }}><TextField select size="small" value={language} onChange={e => setLanguage(e.target.value)} disabled={listening || busy} slotProps={{ htmlInput: { "aria-label": "Voice language" } }} sx={{ "& .MuiSelect-select": { py: .5, fontSize: 11 }, "& fieldset": { border: 0 } }}><MenuItem value="en-IN">English (India)</MenuItem><MenuItem value="hi-IN">हिन्दी</MenuItem></TextField><Stack component="label" direction="row" sx={{ alignItems: "center",  fontSize: 10, color: "text.secondary" }}><Switch size="small" checked={speak} onChange={e => { setSpeak(e.target.checked); if (e.target.checked) window.speechSynthesis?.resume(); if (!e.target.checked) speech.stop(); }} slotProps={{ input: { "aria-label": "Speak answers" } }} />Speak answers</Stack><TextField select size="small" value={speech.voice} onChange={e => { speech.stop(); speech.setVoice(e.target.value); }} slotProps={{ htmlInput: { "aria-label": "Answer voice" } }} sx={{ maxWidth: 190, "& .MuiSelect-select": { py: .5, fontSize: 11 } }}><MenuItem value="auto">Automatic device voice</MenuItem>{speech.voices.map(voice => <MenuItem key={voice.voiceURI} value={voice.voiceURI}>{voice.name} ({voice.lang})</MenuItem>)}{speech.aiAvailable && <MenuItem value="ai">AI voice</MenuItem>}</TextField></Stack><Typography sx={{ fontSize: 9, color: "text.secondary" }}>Enable “Speak answers” for automatic replies · Speaker icon reads any answer</Typography></Stack>
       </Box>
     </Paper>
+    {speech.aiAvailable && <Typography sx={{ fontSize: 10, color: "text.secondary", textAlign: "center" }}>AI voice is generated audio. Selecting it sends answer text to OpenAI.</Typography>}
     <Typography sx={{ fontSize: 10, color: "text.secondary", textAlign: "center" }}>A helping hand for store operations. Prepare stock changes in chat. Review and confirm before they are saved.</Typography>
   </Stack>;
 }

@@ -1,10 +1,14 @@
+import { rateLimit } from "@/lib/rate-limit";
 import { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 const failure = (message: string, status: number) => Response.json({ error: { code: "voice", message } }, { status });
+export async function GET() { return Response.json({ speechEnabled: Boolean(process.env.OPENAI_API_KEY), recordingEnabled: Boolean(process.env.OPENAI_API_KEY) }, { headers: { "Cache-Control": "no-store" } }); }
 export async function POST(request: NextRequest) {
   if (!process.env.OPENAI_API_KEY) return failure("Voice recording requires OPENAI_API_KEY on this browser. Try Chrome's speech recognition or type your question.", 503);
   if (Number(request.headers.get("content-length")) > 4 * 1024 * 1024) return failure("Recording is too large. Keep it under 30 seconds.", 413);
+  const limited = await rateLimit("transcription", 20, 60);
+  if (limited) return limited;
   try {
     const data = await request.formData();
     const file = data.get("file");

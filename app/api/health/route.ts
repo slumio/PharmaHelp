@@ -1,10 +1,10 @@
-import { DEMO_MODE } from "@/lib/demo";
-import { database } from "@/db/mongo";
+import { productionIssues } from "@/lib/production-config";
+import { rows } from "@/db/sqlite";
 export const dynamic = "force-dynamic";
 export async function GET() {
-  if (DEMO_MODE) return Response.json({ status: "ok", mode: "demo" });
+  if (productionIssues().length) return Response.json({ status: "unconfigured" }, { status: 503 });
   try {
-    await (await database()).command({ ping: 1 });
+    rows("SELECT 1");
     return Response.json({ status: "ok" }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return Response.json({ status: "unavailable" }, { status: 503 });

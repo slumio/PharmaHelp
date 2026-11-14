@@ -34,7 +34,7 @@ def main():
         password = secrets.token_urlsafe(24)
         with target.open('x', encoding='utf-8') as file:
             os.chmod(target, 0o600)
-            file.write(f'MONGODB_URI=mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true\nMONGODB_DB=pharmahelp\nSTORE_ID=1\nAPP_USERNAME=admin\nAPP_PASSWORD={password}\nAPP_ORIGIN=http://localhost:3000\nPORT=3000\nOPENAI_API_KEY=\n')
+            file.write(f'DATABASE_PATH=data/pharmahelp.sqlite\nSEED_SAMPLE_DATA=true\nSTORE_ID=1\nAPP_USERNAME=admin\nAPP_PASSWORD={password}\nAUTH_SECRET={secrets.token_urlsafe(48)}\nAPP_ORIGIN=http://localhost:3000\nPORT=3000\nOPENAI_API_KEY=\n')
         print('Created .env with random credentials. Read APP_PASSWORD there to sign in.')
     elif args.command == 'up':
         run('docker', 'compose', 'up', '--build', '-d', '--wait', 'app')
@@ -44,8 +44,14 @@ def main():
     elif args.command == 'backup':
         if not args.output:
             parser.error('backup requires --output PATH')
-        with args.output.open('xb') as output:
-            subprocess.run(['docker', 'compose', 'exec', '-T', 'mongo', 'mongodump', '--db', os.environ.get('MONGODB_DB', 'pharmahelp'), '--archive', '--gzip'], stdout=output, check=True)
+        import sqlite3
+        source = Path(os.environ.get('DATABASE_PATH', 'data/pharmahelp.sqlite'))
+        if not source.exists():
+            parser.error('Local database does not exist. For Docker, copy the database using the documented container backup command.')
+        with args.output.open('xb'):
+            pass
+        with sqlite3.connect(f'file:{source}?mode=ro', uri=True) as database, sqlite3.connect(args.output) as backup:
+            database.backup(backup)
         print(f'Backup saved to {args.output}')
     else:
         commands = {'dev': 'dev', 'build': 'build', 'start': 'start', 'setup-db': 'db:setup', 'test': 'test'}

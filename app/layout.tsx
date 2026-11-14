@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <AppRouterCacheProvider>
           <Theme>
-            <AppShell demo={process.env.DEMO_MODE === "true"}>{children}</AppShell>
+            <AppShell>{children}</AppShell>
           </Theme>
         </AppRouterCacheProvider>
       </body>

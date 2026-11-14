@@ -1,8 +1,8 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { tools, createOrderTx, ToolError } from "@/lib/agent-tools";
 import { dashboardMetrics, currentStock, lowStock } from "@/lib/queries";
-import { database, closeDatabase, STORE_ID } from "@/db/mongo";
-import { confirmBill, medicines } from "@/lib/repository";
+import { rows, run, closeDatabase, STORE_ID } from "@/db/sqlite";
+import { confirmBill } from "@/lib/repository";
 
 const unique = () => `Test-${crypto.randomUUID()}`;
 async function add(qty = 5) {
@@ -10,17 +10,19 @@ async function add(qty = 5) {
   const result = await tools.upsert_stock.run({ name, mrp: 10.01, purchasePrice: 8, qty } as never) as { medicineId: number };
   return { ...result, name };
 }
-beforeAll(async () => {
-  if (!process.env.MONGODB_DB?.endsWith("_test")) throw new Error("Tests require a dedicated MONGODB_DB ending in _test");
-  await database();
-});
+beforeAll(() => { if (!process.env.DATABASE_PATH?.endsWith("_test.sqlite")) throw new Error("Use a dedicated _test.sqlite database"); });
 afterAll(closeDatabase);
 
-describe("MongoDB inventory and transaction guarantees", () => {
+describe("SQLite inventory and transaction guarantees", () => {
   it("adds stock and exposes compatible frontend fields", async () => {
     const med = await add();
     const rows = await currentStock(med.name);
     expect(rows[0]).toMatchObject({ medicine_id: med.medicineId, stock: 5, mrp: "10.01" });
+  });
+  it("persists stock when the database connection is reopened", async () => {
+    const med = await add(11);
+    closeDatabase();
+    expect((await currentStock(med.name))[0].stock).toBe(11);
   });
   it("escapes regex metacharacters in medicine search", async () => {
     expect(await currentStock("[unclosed")).toEqual([]);
@@ -29,8 +31,7 @@ describe("MongoDB inventory and transaction guarantees", () => {
     const med = await add(10);
     await tools.reduce_stock.run({ medicineId: med.medicineId, qty: 2 } as never);
     await tools.update_stock_count.run({ medicineId: med.medicineId, countedQty: 4 } as never);
-    const db = await database();
-    const movements = await db.collection("movements").find({ medicineId: med.medicineId, storeId: STORE_ID }).toArray();
+    const movements = rows<{qty:number}>("SELECT qty FROM movements WHERE medicine_id=? AND store_id=?", [med.medicineId, STORE_ID]);
     expect(movements.reduce((sum, m) => sum + m.qty, 0)).toBe(4);
     await tools.delete_stock.run({ medicineId: med.medicineId } as never);
     expect(await currentStock(med.name)).toEqual([]);
@@ -69,16 +70,16 @@ describe("MongoDB inventory and transaction guarantees", () => {
   });
   it("rolls back all bill writes when a later line fails", async () => {
     const name = unique(), key = unique();
-    const input = { supplierName: "Supplier", idempotencyKey: key, items: [{ name, packSize: "strip", batchNo: "NA", qty: 4, mrp: 20, purchasePrice: 12 }, { name: unique(), packSize: "strip", batchNo: "NA", qty: BigInt(1), mrp: 20, purchasePrice: 12 }] };
+    const input = { supplierName: "Supplier", idempotencyKey: key, items: [{ name, packSize: "strip", batchNo: "NA", qty: 4, mrp: 20, purchasePrice: 12 }, { name: unique(), packSize: "strip", batchNo: "NA", qty: -1, mrp: 20, purchasePrice: 12 }] };
     await expect(confirmBill(input as never)).rejects.toThrow();
     expect(await currentStock(name)).toEqual([]);
-    expect(await (await database()).collection("bills").countDocuments({ idempotencyKey: key })).toBe(0);
+    expect(rows("SELECT id FROM bills WHERE idem=?", [key])).toHaveLength(0);
   });
   it("isolates medicine mutations by store", async () => {
-    const db = await database();
-    const result = await medicines(db).insertOne({ _id: 900000001, storeId: STORE_ID + 1000, name: unique(), packSize: "strip", batchNo: "NA", stock: 3, mrpCents: 100, purchaseCents: 50, minStock: 10, expiryDate: null, rackCode: null, rowNo: null, colNo: null });
-    try { await expect(tools.reduce_stock.run({ medicineId: result.insertedId, qty: 1 } as never)).rejects.toThrow(ToolError); }
-    finally { await medicines(db).deleteOne({ _id: result.insertedId }); }
+    const inserted = run("INSERT INTO medicines(store_id,name,pack_size,batch_no,mrp,purchase,stock) VALUES(?,?,'strip','NA',100,50,3)", [STORE_ID + 1000, unique()]);
+    const id = Number(inserted.lastInsertRowid);
+    try { await expect(tools.reduce_stock.run({ medicineId: id, qty: 1 } as never)).rejects.toThrow(ToolError); }
+    finally { run("DELETE FROM medicines WHERE id=?", [id]); }
   });
   it("returns a complete 30-day metrics series", async () => {
     const metrics = await dashboardMetrics();

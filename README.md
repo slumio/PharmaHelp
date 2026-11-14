@@ -1,106 +1,267 @@
 # PharmaHelp
 
-Your pharmacy, connected. A responsive workspace for inventory, shelf locations, supplier imports, customer bills, and a voice copilot. The visual theme adapts Rig AI’s electric blue, charcoal panels, cream typography and angular controls. Built with Next.js and MongoDB, with simple Python run commands.
+The actual pharmacy application: a responsive Next.js interface, authenticated server APIs, a persistent SQLite database, inventory CRUD, supplier bills, customer sales, and voice-assisted store questions.
 
-## Instant preview on Vercel (no database)
+**The sample data is inside the real server database.** There is no separate dummy site, browser-local database, or read-only imitation. The same screens and APIs work with sample records and with records you create. Your writes persist across reloads, devices, and server restarts when the server’s data directory is stored on a persistent disk.
 
-Deploy the pushed repository to Vercel with `DEMO_MODE=true`, `APP_USERNAME=admin`, and a strong `APP_PASSWORD`. This shows realistic fictional inventory, sales, shelves, charts and store questions without MongoDB. The preview is clearly labeled and read-only. Disable `DEMO_MODE` and add `MONGODB_URI` when you are ready to use real stock.
+## Screenshots
 
-## Deploy to Render + MongoDB Atlas
+These screenshots show the actual application against a disposable server-side SQLite database containing fictional records.
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/slumio/PharmaHelp)
+![Dashboard](docs/screenshots/dashboard.png)
 
-Commit and push these changes to your GitHub repository before using the deployment button. Render deploys the code on GitHub, not uncommitted local changes.
+| Inventory | Voice assistant |
+|---|---|
+| ![Inventory](docs/screenshots/inventory.png) | ![Voice assistant](docs/screenshots/voice-assistant.png) |
 
-1. Create a MongoDB Atlas cluster. Add a database user and configure network access for your hosting service. Copy the driver's `mongodb+srv://...` connection string with the database user's password inserted and URL-encoded.
-2. Click **Deploy to Render**, connect the repository, and paste the connection string into `MONGODB_URI`. Set `DEMO_MODE=false` for your own store; the Blueprint initially enables the sample-data preview. `OPENAI_API_KEY` is optional; leave it blank to use database-backed answers and browser voice without AI image extraction or recording transcription.
-3. Deploy. Open the service URL, sign in as `admin`, and use the generated `APP_PASSWORD` from Render's Environment page.
+| Shelf map | Supplier import |
+|---|---|
+| ![Shelves](docs/screenshots/shelves.png) | ![Import](docs/screenshots/import.png) |
 
-The included `render.yaml` handles the build, startup, generated password and `/api/health` check. MongoDB indexes and an empty store are initialized automatically. No migration command, Python dependencies, local database or seed step is required on Render. The Blueprint selects a paid Starter instance; review the provider's displayed pricing before creating it.
+<details>
+<summary>Login and mobile screens</summary>
 
-Render's outbound IP ranges are available in the service dashboard; allow those in Atlas. Use the same hosting region where practical. For production, restrict the Atlas network list instead of leaving all IPs allowed. See [Render Blueprints](https://render.com/docs/infrastructure-as-code) and [Atlas network access](https://www.mongodb.com/docs/atlas/security/ip-access-list/).
+![Login](docs/screenshots/login.png)
+<img src="docs/screenshots/mobile.png" alt="Mobile dashboard" width="360" />
 
-## Deploy to Vercel + MongoDB Atlas
+</details>
 
-[Deploy with Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fslumio%2FPharmaHelp&env=DEMO_MODE,APP_USERNAME,APP_PASSWORD&envDescription=MongoDB%20Atlas%20connection%20string%20and%20a%20secure%20operator%20login&project-name=pharmahelp&repository-name=pharmahelp)
+## Run locally
 
-Import the pushed repository as a Next.js project. Set `MONGODB_URI`, `APP_USERNAME=admin`, and a strong `APP_PASSWORD`. Set `DEMO_MODE=false` for real data, or `true` for the preview. Optionally set `OPENAI_API_KEY`, then deploy. `MONGODB_DB` defaults to `pharmahelp`; indexes initialize automatically, and connections reuse a small cached pool. Configure Atlas network access for Vercel; fixed outbound networking may depend on your hosting plan. Use HTTPS (provided by both hosts). Set `APP_ORIGIN` to your public URL if you use a reverse proxy with a different request origin.
+Install Python 3.10+, Node.js 24, and npm:
 
-Vercel's request-size limits apply to uploads; keep bill photos under 3 MB. Render is the recommended straightforward Docker option; Vercel works without a separate backend server.
+```sh
+npm ci
+python3 manage.py init
+python3 manage.py dev
+```
 
-## Run locally — two commands
+Open http://localhost:3000. Sign in as `admin` using `APP_PASSWORD` from `.env`.
 
-Install Python 3.10+ and Docker with Compose v2:
+`init` generates a private `.env` with a random operator password and session secret. It never overwrites an existing file. SQLite creates its schema automatically. No database server, MongoDB account, browser database, or API key is required.
+
+By default, `SEED_SAMPLE_DATA=true` populates an **empty** store with 12 fictional medicines and 30 historical sales. It never resets an existing store or duplicates the seed on restart. The normal inventory, sales, CSV import, and AI-confirmation endpoints operate on these records.
+
+To start with an empty real store, set `SEED_SAMPLE_DATA=false` before creating a new database. Turning it off later preserves existing sample records; it does not delete anything.
+
+## Run with Docker
+
+Install Python and Docker Compose v2:
 
 ```sh
 python3 manage.py init
 python3 manage.py up
 ```
 
-Open http://localhost:3000. Sign in as `admin` with `APP_PASSWORD` from `.env`. The first start builds the app and starts a local MongoDB replica set. Subsequent starts preserve all records.
+The application runs on http://localhost:3000. A named Docker volume stores `/data/pharmahelp.sqlite` and its SQLite WAL files. Restarting or rebuilding the container preserves this volume.
 
 ```sh
 python3 manage.py logs
 python3 manage.py status
 python3 manage.py down
-python3 manage.py backup --output pharmacy.archive.gz
 ```
 
-Backups cover the bundled local MongoDB. If using Atlas, use Atlas backups or `mongodump` with your Atlas URI. Keep offsite copies and test restoration into a separate database. Never use `docker compose down -v` unless you intend to erase the local database. Local MongoDB binds to loopback and has no authentication; use Atlas for hosted deployments.
+`docker compose down -v` erases the database volume. Ordinary `down` preserves it.
 
-## Develop locally
+## Deploy the actual product from GitHub
 
-Install Node.js 24 and Python 3.10+, run `npm ci`, and run `python3 manage.py init`. Set `MONGODB_URI` in `.env` to Atlas, or start only the local database with `docker compose up -d --wait mongo`.
+GitHub stores the source and runs CI. The live Next.js server needs a host with a persistent disk. **GitHub Pages cannot run this backend.** The former static Pages edition has been removed.
+
+The included [Render Blueprint](render.yaml) deploys the actual Docker application with a 1 GB persistent disk and generates the operator password and session secret. No external database service is needed. It selects a paid Starter instance and persistent storage; review the prices shown by Render.
+
+1. Commit and push this repository to GitHub.
+2. In Render, connect your GitHub account and create a **Blueprint** from this repository.
+3. Confirm the service configuration and deploy it.
+4. Open the service URL and sign in as `admin`. Retrieve `APP_PASSWORD` from the service’s Environment settings.
+5. Optionally add `OPENAI_API_KEY` to enable natural-language AI, image extraction, and server audio, then redeploy.
+
+The Blueprint enables automatic deployments **after GitHub CI checks pass**. Subsequent pushes rebuild the same application. The persistent disk retains SQLite data across deployments. See [Render’s Blueprint reference](https://render.com/docs/blueprint-spec) and [persistent disk guide](https://render.com/docs/disks).
+
+For another Docker host, use the same image, mount persistent storage at `/data`, set the required secrets, and put an HTTPS reverse proxy in front of the app. Run one application instance against this SQLite file. Do not share it across multiple hosts or use ephemeral serverless storage. This SQLite configuration intentionally rejects Vercel deployment because its local filesystem is not a durable shared database.
+
+## Configuration
+
+See [.env.example](.env.example). Never commit `.env`, passwords, API keys, or database files.
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_PATH` | Server SQLite path. Local default: `data/pharmahelp.sqlite`; Docker: `/data/pharmahelp.sqlite` |
+| `SEED_SAMPLE_DATA` | `true` seeds fictional records only when the store is empty |
+| `STORE_ID` | Positive store identifier; default `1` |
+| `APP_USERNAME` | Operator login name |
+| `APP_PASSWORD` | Operator password; at least 16 characters in production |
+| `AUTH_SECRET` | Independent random session-signing secret; at least 32 characters |
+| `APP_ORIGIN` | Public HTTPS URL, if needed behind a proxy; localhost HTTP is allowed locally |
+| `PORT` | Local HTTP port; default `3000` |
+| `OPENAI_API_KEY` | Optional natural-language answers, bill-photo extraction, transcription, and generated speech |
+| `OPENAI_TRANSCRIPTION_MODEL` | Optional transcription model; default `gpt-transcribe` |
+| `OPENAI_SPEECH_MODEL` | Optional speech model; default `gpt-4o-mini-tts` |
+
+For existing `.env` files from earlier versions, replace old MongoDB/demo settings with `DATABASE_PATH` and `SEED_SAMPLE_DATA`. Keep your password and `AUTH_SECRET`. Existing MongoDB or browser-local records are not automatically imported into SQLite.
+
+Generate a session secret with:
 
 ```sh
-python3 manage.py setup-db
-python3 manage.py dev
+python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
 ```
 
-`python3 manage.py build` creates a production build, and `python3 manage.py start` serves it. `./run.sh` is a compatibility wrapper. The Python CLI has no package dependencies. `.env` is never overwritten or committed.
+## Inventory and bills
 
-## Voice and imports
+**Inventory → New stock** adds a medicine, batch, quantity, price, expiry, and rack. Existing rows provide **Add**, **Reduce**, **Count**, and **Delete** actions. Count records an exact physical count. Delete zeros stock and preserves the movement history.
 
-The **Ask your store** page supports English (India) and Hindi dictation, a microphone button, transcript review before sending, and optional spoken answers. Chrome's speech recognition works without an API key where the browser supports it; browser speech services may process audio externally. Microphone access requires HTTPS or localhost and browser permission.
+**Shelf map** groups medicines by rack and supports name search. **Customer bills** lists saved sales and outstanding credit. Sales can be created through the assistant’s confirmation flow or the authenticated orders API.
 
-Other supported browsers record up to 30 seconds and send audio to OpenAI for transcription when `OPENAI_API_KEY` is set. The fallback uses `OPENAI_TRANSCRIPTION_MODEL` (default `gpt-transcribe`). OpenAI API usage is billed separately. Speech output uses browser voices; voice availability varies by device. Without an API key, the rule router understands English and selected Hindi transliterations; natural Hindi questions need AI mode.
+### CSV supplier import
 
-CSV columns: `name,pack,batch,expiry,qty,mrp,purchase`. Dates use `YYYY-MM-DD`. Quantities must be positive integers. Quoted commas are supported. The import screen always shows editable rows before confirmation; retries use an idempotency key. Bill photos need `OPENAI_API_KEY`.
+Open **Import stock**, upload a CSV, review the editable rows, then confirm:
+
+```csv
+name,pack,batch,expiry,qty,mrp,purchase
+Dolo 650mg,strip of 15,DL-2408,2028-06-30,20,32.50,24.00
+"Medicine, with comma",strip of 10,B-12,2028-08-31,10,50.00,35.00
+```
+
+Use positive integer quantities, nonnegative prices, and `YYYY-MM-DD` expiry dates. Quoted commas are supported. Uploads are limited to 3 MB and 1,000 rows. The reviewed bill has an idempotency key to prevent duplicate processing on retry. Image extraction requires `OPENAI_API_KEY`; CSV imports do not.
 
 ## AI database operations
 
-Ask questions normally. With `OPENAI_API_KEY`, the copilot can search for medicines and prepare validated changes from natural language. Without a key, these command patterns work:
+All modes query the actual server database. Without an API key, the deterministic router supports:
 
-- `Add 20 Dolo 650mg at MRP 32.50`
-- `Reduce 2 of Dolo 650mg`
-- `Set stock of Dolo 650mg to 50`
-- `Remove all stock of Dolo 650mg`
-- `Sell 2 of Dolo 650mg to Demo Customer`
+```text
+What expires in the next 90 days?
+What is low on stock?
+Where is Dolo 650mg kept?
+Stock of Dolo 650mg
+Today's revenue and udhaar
+Add 20 Dolo 650mg at MRP 32.50
+Reduce 2 of Dolo 650mg
+Set stock of Dolo 650mg to 50
+Remove all stock of Dolo 650mg
+Sell 2 of Dolo 650mg to Sample Customer
+```
 
-Review the action card and click **Confirm change** to write to MongoDB. The AI never executes arbitrary database queries. Stock removal zeros the balance and preserves its audit history. Ambiguous medicine batches require clarification. Demo mode shows proposals but does not allow confirmation.
+With `OPENAI_API_KEY`, the model can search records and prepare changes from more flexible language. It receives validated tools, not an unrestricted SQL connection.
 
-## Reliability and scope
+Every AI write first appears as a review card. **Confirm change** commits the stock operation and its saved confirmation result in one SQL transaction. Repeating confirmation returns the saved result. Proposals expire after 15 minutes. Ambiguous medicine batches require clarification. The audit trail remains server-side.
 
-MongoDB Atlas or a replica set is required for multi-document transactions. Stock writes, sales and bill confirmation commit atomically; concurrent inventory writes retry on store-level conflicts. Stock balances have an append-only movement audit, prices use integer paise, duplicate sale lines are consolidated, expired stock cannot be sold, and indexes enforce medicine and invoice uniqueness per store.
+## Voice input and spoken answers
 
-This is a single-store application with a shared operator login and signed, HTTP-only sessions that expire after eight hours. Production refuses access if credentials are absent. The AI queries stock and metrics and can prepare stock additions, reductions, count corrections, stock removal and sales. Each write appears as a review card and requires explicit confirmation. Confirmation and the stock operation share one MongoDB transaction, making repeated approval safe. Proposals expire after 15 minutes; confirmed actions remain in the audit trail. Multi-user roles, per-person audit identity, host-level rate limiting and monitoring remain deployment-specific work. Tax retains the original fixed 12% rule; validate your billing requirements before operational use. Dashboard days use UTC.
+1. Select English (India) or हिन्दी.
+2. Tap the microphone, allow access, and review the recognized text before sending.
+3. Enable **Speak answers** for automatic spoken replies; it is off by default.
+4. Tap **Read answer aloud** on an answer to play it manually.
+5. Choose an installed voice from the voice selector, or **AI voice** if configured.
+6. Use **Stop audio** to stop preparation or playback.
 
-The former PostgreSQL schema is replaced by MongoDB. Existing PostgreSQL records are not automatically transferred. Export and reconcile real stock, bills and ledger records before switching an existing operational installation.
+The playback implementation waits for delayed device voices, keeps utterances alive, resumes paused synthesis, splits long answers, and reports errors instead of failing silently.
 
-## Checks
+If sound does not play, check device volume/output, tab mute, and the selected voice. Some browsers block automatic audio; tap the answer’s speaker button. Some Linux/minimal environments have no speech voices installed; install a device voice or configure `OPENAI_API_KEY` for generated audio. Browser voices and server-generated audio are separate options. AI audio is disclosed in the interface and sends answer text to OpenAI.
 
-Use a disposable MongoDB replica set. Tests require a database name ending in `_test` and add records without clearing existing collections:
+Microphone access requires HTTPS or localhost and browser permission. Browser recognition support and installed Hindi voices vary by device. Audio recording/transcription provides a server fallback on browsers without speech recognition when an API key is configured. OpenAI usage is billed separately.
+
+## SQL schema and reliability
+
+The complete schema is committed at [db/schema.sql](db/schema.sql). SQLite runs on the server using Node’s built-in driver. Tables include medicines, stock movements, orders, supplier bills, proposed/confirmed actions, agent runs, rate-limit buckets, and seed metadata.
+
+- Prepared statements bind user input.
+- Stock writes, sales, imports, and AI approvals commit atomically.
+- Transactions execute synchronously to avoid requests entering another request’s uncommitted transaction.
+- Duplicate sale lines are consolidated before availability checks.
+- Stock cannot become negative through supported operations, and expired medicine sales are rejected.
+- Prices and totals are stored as integer paise.
+- WAL mode and a busy timeout support the single-instance deployment.
+- Signed HTTP-only sessions expire after eight hours; rotating credentials invalidates them.
+- Login and paid AI/audio operations have database-backed rate limits.
+- Production refuses access when credentials or session configuration are incomplete.
+- `/api/health` checks configuration and SQLite readiness.
+
+This is a single-store product with a shared operator account. It does not yet provide individual staff roles, per-person audit identity, multi-host scaling, or managed offsite backups. Validate billing rules before operational use: tax remains fixed at 12%, and dashboard days use UTC. “Sample SQL” means fictional initial records in the real backend; it does not imply that storage, authentication, or CRUD are simulated.
+
+## Backups and recovery
+
+For a local Node deployment:
 
 ```sh
-export MONGODB_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true'
-export MONGODB_DB=pharmahelp_test
+python3 manage.py backup --output pharmacy-backup.sqlite
+```
+
+The Python CLI uses SQLite’s online backup API and refuses to overwrite an existing destination. For Docker/Render, create an online SQLite backup on the mounted disk, then download it. Do not copy only the live `.sqlite` file while WAL writes are active.
+
+Example with Node.js 24 in the Docker container:
+
+```sh
+docker compose exec app node -e 'const {DatabaseSync,backup}=require("node:sqlite"); const db=new DatabaseSync(process.env.DATABASE_PATH); backup(db,"/data/pharmacy-backup.sqlite").then(()=>db.close())'
+docker compose cp app:/data/pharmacy-backup.sqlite ./pharmacy-backup.sqlite
+```
+
+Keep offsite copies. To restore, stop application writes, preserve the existing database and WAL files, restore the verified backup to `DATABASE_PATH`, and restart. Test this on a separate disposable deployment before relying on it.
+
+## Commands and tests
+
+```sh
 npm run typecheck
 npm test
 python3 -m unittest discover -s tests -p 'test_*.py'
 npm audit --omit=dev
 npm run build
-ALLOW_DEMO_SEED=true npm run db:seed
 npm run test:e2e
 ```
 
-The demo seed only adds records and is never run on startup or deployment. CI creates a disposable MongoDB replica set, runs integration and Python tests, audits dependencies, builds production, and runs browser checks. It never publishes automatically.
+Backend tests use a disposable SQLite path ending in `_test.sqlite`; the default is `/tmp/pharmahelp_test.sqlite`. They do not require a database service. Browser tests need a running app with sample records, dedicated credentials, and `AUTH_SECRET`. CI provisions these automatically and validates stock transactions, rollback, seed idempotency, AI confirmation, sessions, rate limiting, imports, mobile navigation, and voice failure handling.
+
+Other useful commands:
+
+```sh
+python3 manage.py setup-db  # Create/verify schema; preserve records
+python3 manage.py build     # Build the standalone server
+python3 manage.py start     # Serve the production build
+ALLOW_DEMO_SEED=true npm run db:seed  # Populate an empty store only
+```
+
+Production and development builds use separate directories to prevent asset collisions. `scripts/prepare-standalone.mjs` packages static assets and the SQL schema with the actual server.
+
+## Regenerate screenshots
+
+Run the actual app against a disposable sample database, then:
+
+```sh
+SCREENSHOT_URL=http://127.0.0.1:3103 \
+APP_USERNAME=test \
+APP_PASSWORD=your-test-password \
+node scripts/capture-screenshots.mjs
+```
+
+The script captures the login, dashboard, inventory, shelves, import, voice assistant, and mobile screens. It never captures the password field filled in. Commit `docs/screenshots/` so images render in GitHub.
+
+## Repository map
+
+```text
+app/                         Actual pages and authenticated API routes
+components/                  Theme, navigation and spoken-answer playback
+db/schema.sql                Server-side SQLite schema
+db/sqlite.ts                 Connection and atomic transaction handling
+db/seed.ts                   Idempotent fictional initial records
+lib/                         Validation, SQL queries, stock operations and AI tools
+manage.py                    Dependency-free Python run/backup commands
+Dockerfile / compose.yaml    Actual app with a persistent SQL volume
+render.yaml                  GitHub-connected deployment with a persistent disk
+.github/workflows/ci.yml     Checks before deployment
+docs/screenshots/            Actual-product screenshots using fictional records
+tests/                       SQL, security, Python and browser tests
+```
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| Login returns 503 | Configure a 16+ character password and 32+ character `AUTH_SECRET` |
+| Database will not open | Confirm `DATABASE_PATH` exists on a writable persistent directory |
+| Records disappear after deployment | Attach the persistent disk and keep the same database path |
+| Sample records are missing | `SEED_SAMPLE_DATA` must be true before initializing an empty store |
+| Sample seed runs again | It refuses to add data to any nonempty store; check that you are using the same file |
+| API returns 429 | Wait for the `Retry-After` interval |
+| Spoken replies are silent | Check Speak answers, device voices, volume, and browser autoplay restrictions |
+| GitHub Pages shows an old dummy version | Disable the old Pages deployment; use the actual server’s live URL |
+| Vercel deployment is rejected | SQLite needs a persistent host; use the provided Docker/Render setup |
+
+Push this complete repository, connect it to the persistent host once, and deploy the actual application. A GitHub commit alone cannot provide a running backend or durable server database.

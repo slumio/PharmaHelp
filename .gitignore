@@ -12,3 +12,10 @@ __pycache__/
 *.dump
 
 .next-production
+
+dist-pages/
+
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

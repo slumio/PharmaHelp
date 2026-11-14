@@ -12,7 +12,7 @@ const links = [
   { href: "/import", label: "Import stock", Icon: FileUploadOutlined },
   { href: "/ask", label: "Ask your store", Icon: AutoAwesomeRounded },
 ];
-export default function AppShell({ children, demo = false }: { children: React.ReactNode; demo?: boolean }) {
+export default function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
   const current = links.find(link => link.href === path);
@@ -32,7 +32,7 @@ export default function AppShell({ children, demo = false }: { children: React.R
   </Box>;
   if (path === "/login") return <>{children}</>;
   return <Box sx={{ minHeight: "100vh" }}>
-    <Box component="a" href="#main-content" sx={{ position: "fixed", top: -80, left: 12, zIndex: 1500, p: 2, bgcolor: "background.paper", "&:focus": { top: 10 } }}>Skip to content</Box>
+    <Box component="a" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }} sx={{ position: "fixed", top: -80, left: 12, zIndex: 1500, p: 2, bgcolor: "background.paper", "&:focus": { top: 10 } }}>Skip to content</Box>
     <Box sx={{ width: 246, position: "fixed", inset: "0 auto 0 0", display: { xs: "none", lg: "block" } }}>{navigation}</Box>
     <Drawer open={open} onClose={() => setOpen(false)} sx={{ "& .MuiDrawer-paper": { width: 260 } }}>{navigation}</Drawer>
     <Box sx={{ ml: { lg: "246px" } }}>
@@ -40,8 +40,8 @@ export default function AppShell({ children, demo = false }: { children: React.R
         <Stack direction="row" spacing={1.5} sx={{ alignItems: "center",  }}><IconButton aria-label="Open navigation" onClick={() => setOpen(true)} sx={{ display: { lg: "none" } }}><MenuRounded /></IconButton><Typography sx={{ color: "text.secondary", fontSize: 12 }}>Workspace <span style={{ margin: "0 10px", color: "#637573" }}>/</span> <strong style={{ color: "#e8e4d9", fontWeight: 600 }}>{current?.label ?? "PharmaHelp"}</strong></Typography></Stack>
         <Stack direction="row" spacing={2} sx={{ alignItems: "center",  }}><Chip label="Pharmacy workspace" size="small" variant="outlined" sx={{ display: { xs: "none", sm: "flex" }, fontSize: 10, borderColor: "#394747" }} /><IconButton component={Link} href="/ask" aria-label="Get store help" size="small"><HelpOutlineRounded sx={{ fontSize: 20 }} /></IconButton><Button size="small" sx={{ fontSize: 11, whiteSpace: "nowrap" }} onClick={async () => { await fetch("/api/auth", { method: "DELETE" }); window.location.assign("/login"); }}>Sign out</Button><Avatar sx={{ bgcolor: "#2c3c40", color: "#a5c5dd", fontSize: 12, width: 33, height: 33 }}>PH</Avatar></Stack>
       </Stack>
-      {demo && <Box sx={{ bgcolor: "#293c4b", color: "#b8d3ef", px: 3, py: 1, borderBottom: "1px solid #46617a", fontSize: 11, fontFamily: '"Chivo Mono", monospace' }}>DEMO / Fictional sample data · Read-only preview · Connect MongoDB to use your own store.</Box>}
-      <Box component="main" id="main-content" sx={{ p: { xs: 2, sm: 3, xl: 4 }, maxWidth: 1560, mx: "auto", minWidth: 0 }}>{children}</Box>
+
+      <Box component="main" id="main-content" tabIndex={-1} sx={{ p: { xs: 2, sm: 3, xl: 4 }, maxWidth: 1560, mx: "auto", minWidth: 0 }}>{children}</Box>
       <Stack component="footer" direction="row" sx={{ justifyContent: "space-between",  px: { xs: 2, sm: 3, xl: 4 }, py: 3, color: "#849590", fontSize: 10 }}><span>PharmaHelp · A clearer day at your pharmacy.</span><span>Made for everyday care</span></Stack>
     </Box>
   </Box>;

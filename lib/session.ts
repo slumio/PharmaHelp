@@ -1,7 +1,7 @@
 const encoder = new TextEncoder();
 export const SESSION_COOKIE = "pharma_session";
 async function key() {
-  return crypto.subtle.importKey("raw", encoder.encode(process.env.APP_PASSWORD ?? ""), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+  return crypto.subtle.importKey("raw", encoder.encode(`${process.env.AUTH_SECRET ?? "development"}:${process.env.APP_USERNAME ?? ""}:${process.env.APP_PASSWORD ?? ""}`), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
 const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 export async function createSession() {

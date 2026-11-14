@@ -1,6 +1,3 @@
-import { database, closeDatabase } from "../db/mongo";
-async function main() {
-  try { await database(); console.log("MongoDB indexes and store are ready"); }
-  finally { await closeDatabase(); }
-}
-main().catch(error => { console.error(error); process.exitCode = 1; });
+import { database,closeDatabase } from "../db/sqlite";
+try { database(); console.log("SQLite schema is ready. Existing records were preserved."); }
+finally { closeDatabase(); }

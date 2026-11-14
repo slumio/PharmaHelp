@@ -1,10 +1,10 @@
+import { rateLimit } from "@/lib/rate-limit";
 import { prepareAction, mutationTools, type ProposedAction } from "@/lib/agent-actions";
-import { DEMO_MODE } from "@/lib/demo";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { tools, ToolError } from "@/lib/agent-tools";
 import { STORE_ID, currentStock } from "@/lib/queries";
-import { database } from "@/db/mongo";
+import { run as sqlRun, STORE_ID as AUDIT_STORE_ID } from "@/db/sqlite";
 import { openai } from "@ai-sdk/openai";
 import { generateText, tool, stepCountIs } from "ai";
 
@@ -24,6 +24,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const limited = await rateLimit("agent", 30, 60);
+  if (limited) return limited;
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(errorShape("bad_request", "question is required"), { status: 400 });
@@ -34,7 +36,7 @@ export async function POST(req: NextRequest) {
   let model = "rule-router";
 
   try {
-    if (process.env.OPENAI_API_KEY && !DEMO_MODE) {
+    if (process.env.OPENAI_API_KEY) {
       model = "gpt-4o-mini";
       const { text, steps } = await generateText({
         model: openai("gpt-4o-mini"),
@@ -55,7 +57,7 @@ export async function POST(req: NextRequest) {
           toolCalls.push({ tool: tr.toolName, args: tr.input, result: tr.output });
         }
       }
-      if (!DEMO_MODE) await (await database()).collection("agent_runs").insertOne({ storeId: STORE_ID, question, toolCalls, answer: text, model, createdAt: new Date() });
+      sqlRun("INSERT INTO agent_runs(store_id,question,tool_calls,answer,model) VALUES(?,?,?,?,?)", [AUDIT_STORE_ID,question,JSON.stringify(toolCalls),text,model]);
       return NextResponse.json({ answer: text, toolCalls, model, actions });
     }
 
@@ -128,7 +130,7 @@ export async function POST(req: NextRequest) {
       answer = `Today: revenue ₹${rs(Number(m.todayRevenue))}, ${m.todayOrders} orders, udhaar ₹${rs(Number(m.creditOutstanding))}, ${m.lowStockCount} low-stock items. Ask me about expiry, low stock, where a medicine is kept, or a medicine's stock.`;
     }
 
-    if (!DEMO_MODE) await (await database()).collection("agent_runs").insertOne({ storeId: STORE_ID, question, toolCalls, answer, model, createdAt: new Date() });
+    sqlRun("INSERT INTO agent_runs(store_id,question,tool_calls,answer,model) VALUES(?,?,?,?,?)", [AUDIT_STORE_ID,question,JSON.stringify(toolCalls),answer,model]);
     return NextResponse.json({ answer, toolCalls, model, actions });
   } catch (e) {
     if (e instanceof ToolError) {
