@@ -70,6 +70,7 @@ describe("agent tools run real SQL", () => {
   it("reduce_stock refuses to go negative", async () => {
     const up = (await tools.upsert_stock.run({ name: "NegMed", mrp: 10, qty: 3 } as never)) as { medicineId: number };
     await expect(tools.reduce_stock.run({ medicineId: up.medicineId, qty: 10 } as never)).rejects.toThrow(ToolError);
+    await tools.delete_stock.run({ medicineId: up.medicineId } as never);
   });
 
   it("createOrderTx generates invoice, GST and deducts stock", async () => {
