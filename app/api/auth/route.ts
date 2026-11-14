@@ -9,7 +9,8 @@ function same(a: string, b: string) { return timingSafeEqual(createHash("sha256"
 
 export async function POST(req: NextRequest) {
   if (!correctOrigin(req)) return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
-  if (productionIssues().length) return NextResponse.json({ error: "Production configuration is incomplete. Configure the required server secrets." }, { status: 503 });
+  const issues = productionIssues();
+  if (issues.length) return NextResponse.json({ error: "Production configuration is incomplete.", issues }, { status: 503, headers: { "Cache-Control": "no-store" } });
   if (!process.env.APP_USERNAME || !process.env.APP_PASSWORD) return NextResponse.json({ error: "Configure APP_USERNAME and APP_PASSWORD on your host first." }, { status: 503 });
   if (Number(req.headers.get("content-length")) > 2048) return NextResponse.json({ error: "Invalid login" }, { status: 413 });
   const limited = await rateLimit("login", 30, 900);

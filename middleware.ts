@@ -3,7 +3,8 @@ import { correctOrigin } from "@/lib/origin";
 import { NextRequest, NextResponse } from "next/server";
 import { validSession, SESSION_COOKIE } from "@/lib/session";
 export async function middleware(req: NextRequest) {
-  if (productionIssues().length) return NextResponse.json({ error: { code: "unconfigured", message: "Production configuration is incomplete. Check server environment settings." } }, { status: 503 });
+  const issues = productionIssues();
+  if (issues.length) return NextResponse.json({ error: { code: "unconfigured", message: "Production configuration is incomplete.", issues } }, { status: 503, headers: { "Cache-Control": "no-store" } });
   const user = process.env.APP_USERNAME, password = process.env.APP_PASSWORD;
   if (!user || !password) {
     if (process.env.NODE_ENV === "production") return NextResponse.json({ error: { code: "unconfigured", message: "Configure application credentials" } }, { status: 503 });
